@@ -22,7 +22,8 @@ func NewDatabase(v *viper.Viper, log *logrus.Logger) *gorm.DB {
 	)
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
-		Logger: gormlogger.Default.LogMode(gormlogger.Info),
+		Logger:         gormlogger.Default.LogMode(gormlogger.Info),
+		TranslateError: true,
 	})
 	if err != nil {
 		log.Fatalf("failed to connect database: %v", err)
