@@ -88,3 +88,26 @@ func (c *LinkUseCase) Create(ctx context.Context, request *model.CreateLinkReque
 	c.Log.Warn("failed to generate unique code after retries")
 	return nil, fiber.ErrInternalServerError
 }
+
+func (c *LinkUseCase) Resolve(ctx context.Context, code string) (string, error) {
+	db := c.DB.WithContext(ctx)
+
+	link := new(entity.Link)
+	if err := c.LinkRepository.FindByCode(db, code, link); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", fiber.NewError(fiber.StatusNotFound, "link not found")
+		}
+		c.Log.Warnf("failed to find link: %+v", err)
+		return "", fiber.ErrInternalServerError
+	}
+
+	if link.ExpiresAt != nil && time.Now().After(*link.ExpiresAt) {
+		return "", fiber.NewError(fiber.StatusGone, "link has expired")
+	}
+
+	if err := c.LinkRepository.IncrementClicks(db, link.ID); err != nil {
+		c.Log.Warnf("failed to increment clicks for %s: %+v", code, err)
+	}
+
+	return link.OriginalURL, nil
+}

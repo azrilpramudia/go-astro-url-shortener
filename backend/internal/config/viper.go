@@ -17,6 +17,7 @@ func NewViper() *viper.Viper {
 	v.SetDefault("DB_POOL_IDLE", 10)
 	v.SetDefault("DB_POOL_MAX", 100)
 	v.SetDefault("DB_POOL_LIFETIME", 300)
+	v.SetDefault("WEB_CORS_ORIGIN", "http://localhost:4321")
 
 	v.AutomaticEnv()
 

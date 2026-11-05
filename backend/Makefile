@@ -5,6 +5,7 @@ APP_NAME   := go-astro-url-shortener
 MAIN_PATH  := ./cmd/web
 MIGRATIONS := db/migrations
 DB_URL     ?= postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=disable
+TEST_DB_URL ?= postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)_test?sslmode=disable
 
 .PHONY: help run dev build test tidy db-up db-down migrate-create migrate-up migrate-down migrate-force
 
@@ -21,7 +22,11 @@ build:
 	go build -o bin/$(APP_NAME) $(MAIN_PATH)
 
 test:
-	go test -v ./test/...
+	go test -v -count=1 ./test/...
+
+test-setup:
+	-docker compose --env-file .env -f ../docker-compose.yml exec -T postgres createdb -U $(DB_USER) $(DB_NAME)_test
+	migrate -database "$(TEST_DB_URL)" -path $(MIGRATIONS) up
 
 tidy:
 	go mod tidy
