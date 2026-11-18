@@ -1,7 +1,10 @@
 ---
-import "../styles/global.css";
+import Layout from "../layouts/Layout.astro";
+import LinkManager from "../components/LinkManager";
 ---
 
-<h1 class="text-3xl font-bold underline">
-  Hello world!
-</h1>
+<Layout title="URL Shortener">
+  <h1 class="mb-2 text-3xl font-bold">URL Shortener</h1>
+  <p class="mb-8 text-slate-600">Tempel link panjang, dapatkan link pendek.</p>
+  <LinkManager client:load />
+</Layout>
