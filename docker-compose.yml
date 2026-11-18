@@ -9,5 +9,57 @@ services:
       - "${DB_PORT}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    image: migrate/migrate
+    profiles: ["app"]
+    volumes:
+      - ./backend/db/migrations:/migrations:ro
+    command:
+      - "-path=/migrations"
+      - "-database=postgres://${DB_USER}:${DB_PASSWORD}@postgres:5432/${DB_NAME}?sslmode=disable"
+      - "up"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    build: ./backend
+    profiles: ["app"]
+    environment:
+      APP_NAME: ${APP_NAME:-go-astro-url-shortener}
+      APP_BASE_URL: ${APP_BASE_URL}
+      WEB_PORT: 3000
+      WEB_CORS_ORIGIN: ${WEB_CORS_ORIGIN}
+      LOG_LEVEL: ${LOG_LEVEL:-5}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:3000}
+    profiles: ["app"]
+    ports:
+      - "4321:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
 volumes:
   pgdata:

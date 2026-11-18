@@ -18,12 +18,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       headers: { "Content-Type": "application/json", ...init?.headers },
     });
   } catch {
-    throw new ApiError("Tidak bisa terhubung ke server", 0);
+    throw new ApiError("Unable to connect to the server.", 0);
   }
 
   const body = (await res.json().catch(() => ({}))) as ApiResponse<T>;
   if (!res.ok || body.data === undefined) {
-    throw new ApiError(body.errors ?? "Terjadi kesalahan", res.status);
+    throw new ApiError(body.errors ?? "Something went wrong.", res.status);
   }
   return body.data;
 }

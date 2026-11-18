@@ -6,8 +6,9 @@ MAIN_PATH  := ./cmd/web
 MIGRATIONS := db/migrations
 DB_URL     ?= postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?sslmode=disable
 TEST_DB_URL ?= postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)_test?sslmode=disable
+COMPOSE := docker compose --env-file .env -f ../docker-compose.yml
 
-.PHONY: help run dev build test tidy db-up db-down migrate-create migrate-up migrate-down migrate-force
+.PHONY: help run dev build test tidy db-up db-down migrate-create migrate-up migrate-down migrate-force app-up app-down app-logs
 
 help:
 	@echo "Targets: run dev build test tidy db-up db-down migrate-create migrate-up migrate-down migrate-force"
@@ -50,3 +51,12 @@ migrate-down:
 migrate-force:
 	@test -n "$(version)" || (echo "usage: make migrate-force version=<n>" && exit 1)
 	migrate -database "$(DB_URL)" -path $(MIGRATIONS) force $(version)
+
+app-up:
+	$(COMPOSE) --profile app up -d --build
+
+app-down:
+	$(COMPOSE) --profile app down
+
+app-logs:
+	$(COMPOSE) --profile app logs -f

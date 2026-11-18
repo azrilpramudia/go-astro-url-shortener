@@ -8,14 +8,22 @@ import LinkList from "./LinkList";
 export default function LinkManager() {
   const [links, setLinks] = useState<Link[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const results = await Promise.allSettled(loadCodes().map(getLink));
-    setLinks(
-      results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : [])),
-    );
-    setLoading(false);
+    setLoadError(false);
+    try {
+      const results = await Promise.allSettled(loadCodes().map(getLink));
+      setLinks(
+        results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : [])),
+      );
+      setLoadError(results.some((r) => r.status === "rejected"));
+    } catch {
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -33,21 +41,33 @@ export default function LinkManager() {
   }
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-8 sm:space-y-10">
       <LinkForm onCreated={handleCreated} />
 
       <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Link kamu</h2>
+        <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-lg font-semibold">Your links</h2>
           <button
             onClick={refresh}
             disabled={loading}
-            className="text-sm text-indigo-600 hover:underline disabled:opacity-60"
+            className="min-h-11 self-start text-left text-sm text-indigo-600 hover:underline disabled:opacity-60 sm:self-auto sm:text-right"
           >
-            {loading ? "Memuat..." : "Muat ulang statistik"}
+            {loading ? "Loading..." : "Refresh statistics"}
           </button>
         </div>
-        <LinkList links={links} onRemove={handleRemove} />
+        <p className="mb-3 text-sm text-slate-500">
+          Your link list is stored in this browser only and won&apos;t sync across devices.
+        </p>
+        {loadError && (
+          <p role="alert" className="mb-3 text-sm text-red-600">
+            {links.length > 0
+              ? "Some saved links could not be loaded. The list may be incomplete. Try refreshing."
+              : "Unable to load your saved links. Please try refreshing."}
+          </p>
+        )}
+        {(links.length > 0 || !loadError) && (
+          <LinkList links={links} onRemove={handleRemove} />
+        )}
       </section>
     </div>
   );
