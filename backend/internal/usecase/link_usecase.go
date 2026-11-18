@@ -111,3 +111,16 @@ func (c *LinkUseCase) Resolve(ctx context.Context, code string) (string, error) 
 
 	return link.OriginalURL, nil
 }
+
+func (c *LinkUseCase) Get(ctx context.Context, code string) (*model.LinkResponse, error) {
+	link := new(entity.Link)
+	if err := c.LinkRepository.FindByCode(c.DB.WithContext(ctx), code, link); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fiber.NewError(fiber.StatusNotFound, "link not found")
+		}
+		c.Log.Warnf("failed to find link: %+v", err)
+		return nil, fiber.ErrInternalServerError
+	}
+
+	return converter.LinkToResponse(link, c.BaseURL), nil
+}

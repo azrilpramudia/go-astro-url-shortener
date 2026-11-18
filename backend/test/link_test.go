@@ -110,3 +110,24 @@ func TestRedirect_Expired(t *testing.T) {
 	require.NoError(t, db.First(&updated, link.ID).Error)
 	assert.Equal(t, int64(0), updated.Clicks)
 }
+
+func TestGetLink(t *testing.T) {
+	clearLinks(t)
+
+	link := entity.Link{Code: "abc1234", OriginalURL: "https://go.dev", Clicks: 3}
+	require.NoError(t, db.Create(&link).Error)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/links/abc1234", nil)
+	resp, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body model.WebResponse[model.LinkResponse]
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	assert.Equal(t, int64(3), body.Data.Clicks)
+
+	req = httptest.NewRequest(http.MethodGet, "/api/links/tidakada", nil)
+	resp, err = app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}

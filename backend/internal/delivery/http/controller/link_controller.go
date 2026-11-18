@@ -40,3 +40,12 @@ func (c *LinkController) Redirect(ctx *fiber.Ctx) error {
 
 	return ctx.Redirect(url, fiber.StatusFound)
 }
+
+func (c *LinkController) Get(ctx *fiber.Ctx) error {
+	response, err := c.UseCase.Get(ctx.UserContext(), ctx.Params("code"))
+	if err != nil {
+		return err
+	}
+
+	return ctx.JSON(model.WebResponse[*model.LinkResponse]{Data: response})
+}

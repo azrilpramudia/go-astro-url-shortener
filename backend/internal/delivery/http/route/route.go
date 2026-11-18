@@ -28,4 +28,5 @@ func (c *RouteConfig) Setup() {
 
 	c.App.Post("/api/links", createLimiter, c.LinkController.Create)
 	c.App.Get("/:code", c.LinkController.Redirect)
+	c.App.Get("/api/links/:code", c.LinkController.Get)
 }
