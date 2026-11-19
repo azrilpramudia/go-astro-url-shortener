@@ -14,7 +14,7 @@ type RouteConfig struct {
 }
 
 func (c *RouteConfig) Setup() {
-	c.App.Get("/api/hello", func(ctx *fiber.Ctx) error {
+	c.App.Get("/api/health", func(ctx *fiber.Ctx) error {
 		return ctx.JSON(fiber.Map{"status": "ok"})
 	})
 
