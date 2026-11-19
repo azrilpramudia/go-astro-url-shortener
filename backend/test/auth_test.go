@@ -216,3 +216,87 @@ func TestLinkOwnership(t *testing.T) {
 	resp = doJSON(t, http.MethodGet, "/api/me/links", "", alice)
 	assert.Equal(t, int64(0), decode[model.ListLinksResponse](t, resp).Total)
 }
+
+func TestCustomAliasEditAndLinkFilters(t *testing.T) {
+	clearLinks(t)
+	alice := registerUser(t, "alias@example.com")
+	bob := registerUser(t, "alias-other@example.com")
+
+	resp := doJSON(
+		t,
+		http.MethodPost,
+		"/api/links",
+		`{"url":"https://old.example/path","custom_code":"my-blog","tags":["Product","campaign","product"]}`,
+		alice,
+	)
+	require.Equal(t, http.StatusCreated, resp.StatusCode)
+	created := decode[model.LinkResponse](t, resp)
+	assert.Equal(t, "my-blog", created.Code)
+	assert.Equal(t, []string{"product", "campaign"}, created.Tags)
+
+	resp = doJSON(
+		t,
+		http.MethodPost,
+		"/api/links",
+		`{"url":"https://other.example","custom_code":"my-blog"}`,
+		bob,
+	)
+	assert.Equal(t, http.StatusConflict, resp.StatusCode)
+
+	resp = doJSON(
+		t,
+		http.MethodPost,
+		"/api/links",
+		`{"url":"https://other.example","custom_code":"bad alias"}`,
+		bob,
+	)
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	resp = doJSON(
+		t,
+		http.MethodPost,
+		"/api/links",
+		`{"url":"https://other.example","tags":["campaign"]}`,
+		nil,
+	)
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+
+	redirect := getCode(t, created.Code)
+	require.Equal(t, http.StatusFound, redirect.StatusCode)
+	assert.Equal(t, "https://old.example/path", redirect.Header.Get("Location"))
+
+	expiresAt := time.Now().Add(24 * time.Hour).UTC().Format(time.RFC3339)
+	updateBody := fmt.Sprintf(
+		`{"url":"https://new.example/path","expires_at":%q,"tags":["campaign","launch"]}`,
+		expiresAt,
+	)
+	resp = doJSON(t, http.MethodPut, "/api/links/"+created.Code, updateBody, alice)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	updated := decode[model.LinkResponse](t, resp)
+	assert.Equal(t, "https://new.example/path", updated.OriginalURL)
+	assert.Equal(t, []string{"campaign", "launch"}, updated.Tags)
+
+	redirect = getCode(t, created.Code)
+	require.Equal(t, http.StatusFound, redirect.StatusCode)
+	assert.Equal(t, "https://new.example/path", redirect.Header.Get("Location"))
+
+	resp = doJSON(
+		t,
+		http.MethodGet,
+		"/api/me/links?q=new.example&status=active&tag=campaign",
+		"",
+		alice,
+	)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	list := decode[model.ListLinksResponse](t, resp)
+	require.Len(t, list.Items, 1)
+	assert.Equal(t, created.Code, list.Items[0].Code)
+	assert.Equal(t, []string{"campaign", "launch"}, list.Items[0].Tags)
+
+	resp = doJSON(t, http.MethodGet, "/api/me/links?q=new.example", "", bob)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, int64(0), decode[model.ListLinksResponse](t, resp).Total)
+
+	resp = doJSON(t, http.MethodPut, "/api/links/"+created.Code, updateBody, bob)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}

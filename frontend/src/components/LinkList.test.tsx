@@ -1,12 +1,15 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { copyToClipboard } from "../lib/clipboard";
-import { getLinkAnalytics } from "../lib/api";
+import { getLinkAnalytics, updateLink } from "../lib/api";
 import type { Link } from "../types/link";
 import LinkList from "./LinkList";
 
 vi.mock("../lib/clipboard", () => ({ copyToClipboard: vi.fn() }));
-vi.mock("../lib/api", () => ({ getLinkAnalytics: vi.fn() }));
+vi.mock("../lib/api", () => ({
+  getLinkAnalytics: vi.fn(),
+  updateLink: vi.fn(),
+}));
 
 const link: Link = {
   id: 1,
@@ -16,12 +19,14 @@ const link: Link = {
   clicks: 3,
   expires_at: "2026-12-01T10:00:00Z",
   created_at: "2026-11-18T00:00:00Z",
+  tags: [],
 };
 
 describe("LinkList", () => {
   beforeEach(() => {
     vi.mocked(copyToClipboard).mockReset();
     vi.mocked(getLinkAnalytics).mockReset();
+    vi.mocked(updateLink).mockReset();
   });
 
   it("shows the link expiration date", () => {
@@ -64,6 +69,7 @@ describe("LinkList", () => {
     expect(screen.getByText("25")).toBeTruthy();
     expect(screen.getByText("18")).toBeTruthy();
     expect(screen.getByRole("img", { name: "Daily click trend" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Export CSV" })).toBeTruthy();
     expect(
       screen.getByText(
         "Country analytics are unavailable until a local GeoIP database is configured.",
@@ -74,5 +80,33 @@ describe("LinkList", () => {
     fireEvent.click(screen.getByRole("button", { name: "7 days" }));
     expect(await screen.findByRole("button", { name: "7 days" })).toBeTruthy();
     expect(getLinkAnalytics).toHaveBeenLastCalledWith("abc1234", 7);
+  });
+
+  it("shows an SVG QR code for the short link", () => {
+    const { container } = render(<LinkList links={[link]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Show QR code abc1234" }));
+
+    expect(screen.getByRole("region", { name: "QR code for abc1234" })).toBeTruthy();
+    expect(container.querySelector("svg")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download QR as SVG" })).toBeTruthy();
+  });
+
+  it("updates a link and reports the result to its owner list", async () => {
+    const updated = { ...link, original_url: "https://updated.example", tags: ["launch"] };
+    const onUpdate = vi.fn();
+    vi.mocked(updateLink).mockResolvedValue(updated);
+    render(<LinkList links={[link]} onUpdate={onUpdate} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit abc1234" }));
+    fireEvent.change(screen.getByLabelText("Destination URL"), {
+      target: { value: updated.original_url },
+    });
+    fireEvent.change(screen.getByLabelText(/Tags/), {
+      target: { value: "launch" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onUpdate).toHaveBeenCalledWith(updated));
+    expect(screen.queryByRole("form", { name: "Edit link abc1234" })).toBeNull();
   });
 });

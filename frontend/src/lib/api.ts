@@ -3,6 +3,7 @@ import type {
   ApiResponse,
   Link,
   LinkAnalytics,
+  LinkListFilters,
   LinkPage,
   User,
 } from "../types/link";
@@ -54,19 +55,47 @@ export const logout = () =>
 
 export const getMe = () => request<User>("/api/auth/me");
 
-export const createLink = (url: string, expiresAt?: string) =>
+export const createLink = (
+  url: string,
+  expiresAt?: string,
+  customCode?: string,
+  tags: string[] = [],
+) =>
   request<Link>("/api/links", {
     method: "POST",
-    body: JSON.stringify({ url, expires_at: expiresAt }),
+    body: JSON.stringify({
+      url,
+      expires_at: expiresAt,
+      custom_code: customCode,
+      tags,
+    }),
   });
 
-export const listMyLinks = (page = 1, size = 50) =>
-  request<LinkPage>(`/api/me/links?page=${page}&size=${size}`);
+export const listMyLinks = (
+  page = 1,
+  size = 20,
+  filters: LinkListFilters = {},
+) => {
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
+  if (filters.q?.trim()) params.set("q", filters.q.trim());
+  if (filters.status) params.set("status", filters.status);
+  if (filters.tag?.trim()) params.set("tag", filters.tag.trim());
+  return request<LinkPage>(`/api/me/links?${params.toString()}`);
+};
 
 export const getLinkAnalytics = (code: string, days = 30) =>
   request<LinkAnalytics>(
     `/api/me/links/${encodeURIComponent(code)}/analytics?days=${days}`,
   );
+
+export const updateLink = (
+  code: string,
+  updates: { url: string; expires_at?: string; tags: string[] },
+) =>
+  request<Link>(`/api/links/${encodeURIComponent(code)}`, {
+    method: "PUT",
+    body: JSON.stringify(updates),
+  });
 
 export const deleteLink = (code: string) =>
   request<void>(`/api/links/${encodeURIComponent(code)}`, { method: "DELETE" });

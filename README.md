@@ -7,9 +7,11 @@ A URL shortener with a Go backend (clean architecture) and an Astro frontend.
 - Create short links from HTTP/HTTPS URLs using random Base62 codes
 - Redirect with HTTP 302 and an atomic hit counter
 - Optionally set an expiration date for each link (returns 410 Gone after expiration)
+- Choose a custom short alias
 - Rate-limit link creation per IP address
 - View per-link click trends, estimated unique visitors, referrers, countries, and device categories
-- Manage account-owned links and view their analytics in the frontend dashboard
+- Edit, search, filter, tag, and paginate account-owned links in the dashboard
+- Generate downloadable QR codes and export analytics to CSV
 - Optionally enable country analytics with a locally supplied GeoIP database
 
 ## Tech Stack
@@ -77,9 +79,10 @@ npm test
 
 | Method | Path               | Description                                                                                          |
 | ------ | ------------------ | ---------------------------------------------------------------------------------------------------- |
-| POST   | `/api/links`       | Create a link. Body: `{"url": "...", "expires_at": "RFC3339 (optional)"}`. Returns 201, 400, or 429. |
+| POST   | `/api/links`       | Create a link; optional `custom_code`, `expires_at`, and owner-only `tags`. |
 | GET    | `/api/links/:code` | Get link details and statistics. Returns 200 or 404.                                                 |
-| GET    | `/api/me/links`    | List the authenticated user's links.                                                                 |
+| PUT    | `/api/links/:code` | Update the authenticated user's destination, expiry, and tags.                                        |
+| GET    | `/api/me/links`    | List/search/filter the authenticated user's links with pagination.                                     |
 | GET    | `/api/me/links/:code/analytics?days=30` | Get owner-only analytics for 7, 30, or 90 days. |
 | DELETE | `/api/links/:code` | Delete an authenticated user's link.                                                                  |
 | GET    | `/:code`           | Redirect to the original URL. Returns 302, 404, or 410.                                              |

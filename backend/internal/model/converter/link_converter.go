@@ -6,6 +6,11 @@ import (
 )
 
 func LinkToResponse(link *entity.Link, baseURL string) *model.LinkResponse {
+	tags := make([]string, 0, len(link.Tags))
+	for _, tag := range link.Tags {
+		tags = append(tags, tag.Name)
+	}
+
 	return &model.LinkResponse{
 		ID:          link.ID,
 		Code:        link.Code,
@@ -14,5 +19,6 @@ func LinkToResponse(link *entity.Link, baseURL string) *model.LinkResponse {
 		Clicks:      link.Clicks,
 		ExpiresAt:   link.ExpiresAt,
 		CreatedAt:   link.CreatedAt,
+		Tags:        tags,
 	}
 }

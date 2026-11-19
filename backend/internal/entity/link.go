@@ -9,6 +9,7 @@ type Link struct {
 	Clicks      int64      `gorm:"column:clicks"`
 	ExpiresAt   *time.Time `gorm:"column:expires_at"`
 	UserID      *uint      `gorm:"column:user_id"`
+	Tags        []LinkTag  `gorm:"foreignKey:LinkID"`
 	CreatedAt   time.Time  `gorm:"column:created_at;autoCreateTime"`
 	UpdatedAt   time.Time  `gorm:"column:updated_at;autoCreateTime;autoUpdateTime"`
 }

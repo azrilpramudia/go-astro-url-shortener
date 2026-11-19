@@ -1,20 +1,27 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { copyToClipboard } from "../lib/clipboard";
 import { getLinkAnalytics } from "../lib/api";
+import { buildAnalyticsCsv } from "../lib/analyticsCsv";
 import type { Link, LinkAnalytics } from "../types/link";
+import EditLinkForm from "./EditLinkForm";
 
 interface Props {
   links: Link[];
   onRemove?: (code: string) => void;
   analyticsEnabled?: boolean;
+  onUpdate?: (link: Link) => void;
 }
 
 export default function LinkList({
   links,
   onRemove,
   analyticsEnabled = false,
+  onUpdate,
 }: Props) {
   const [analyticsCode, setAnalyticsCode] = useState<string | null>(null);
+  const [qrCode, setQrCode] = useState<string | null>(null);
+  const [editingCode, setEditingCode] = useState<string | null>(null);
   const [copyFeedback, setCopyFeedback] = useState<{
     code: string;
     status: "copied" | "error";
@@ -47,6 +54,7 @@ export default function LinkList({
         const expiration = link.expires_at
           ? formatExpiration(link.expires_at)
           : null;
+        const tags = link.tags ?? [];
         const feedback =
           copyFeedback?.code === link.code ? copyFeedback.status : null;
 
@@ -69,6 +77,18 @@ export default function LinkList({
               </p>
               {expiration && (
                 <p className="text-sm text-slate-600">Expires {expiration}</p>
+              )}
+              {tags.length > 0 && (
+                <ul aria-label={`Tags for ${link.code}`} className="mt-1 flex flex-wrap gap-1">
+                  {tags.map((tag) => (
+                    <li
+                      key={tag}
+                      className="rounded-full bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700"
+                    >
+                      {tag}
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
             <div className="flex flex-col gap-2 sm:items-end">
@@ -97,6 +117,33 @@ export default function LinkList({
                       : "Analytics"}
                   </button>
                 )}
+                {onUpdate && (
+                  <button
+                    type="button"
+                    aria-label={`Edit ${link.code}`}
+                    onClick={() =>
+                      setEditingCode((current) =>
+                        current === link.code ? null : link.code,
+                      )
+                    }
+                    className="min-h-10 rounded-lg px-3 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
+                  >
+                    Edit
+                  </button>
+                )}
+                <button
+                  type="button"
+                  aria-expanded={qrCode === link.code}
+                  aria-label={`Show QR code ${link.code}`}
+                  onClick={() =>
+                    setQrCode((current) =>
+                      current === link.code ? null : link.code,
+                    )
+                  }
+                  className="min-h-10 rounded-lg px-3 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
+                >
+                  QR
+                </button>
                 <button
                   type="button"
                   onClick={() => copy(link)}
@@ -118,6 +165,23 @@ export default function LinkList({
               {analyticsEnabled && analyticsCode === link.code && (
                 <div id={`analytics-${link.code}`} className="w-full sm:w-[min(100%,36rem)]">
                   <LinkAnalyticsPanel code={link.code} />
+                </div>
+              )}
+              {editingCode === link.code && onUpdate && (
+                <div className="w-full sm:w-[min(100%,36rem)]">
+                  <EditLinkForm
+                    link={link}
+                    onCancel={() => setEditingCode(null)}
+                    onUpdated={(updated) => {
+                      onUpdate(updated);
+                      setEditingCode(null);
+                    }}
+                  />
+                </div>
+              )}
+              {qrCode === link.code && (
+                <div className="w-full sm:w-[min(100%,36rem)]">
+                  <QRCodePanel link={link} />
                 </div>
               )}
               {feedback === "copied" && (
@@ -143,6 +207,7 @@ function LinkAnalyticsPanel({ code }: { code: string }) {
   const [analytics, setAnalytics] = useState<LinkAnalytics | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -178,22 +243,40 @@ function LinkAnalyticsPanel({ code }: { code: string }) {
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="font-semibold text-slate-900">Link analytics</h3>
-        <div aria-label="Analytics date range" className="flex gap-1">
-          {[7, 30, 90].map((range) => (
+        <div className="flex flex-wrap items-center gap-2">
+          {analytics && (
             <button
-              key={range}
               type="button"
-              aria-pressed={days === range}
-              onClick={() => setDays(range)}
-              className={`rounded-md px-2.5 py-1.5 text-xs font-medium ${
-                days === range
-                  ? "bg-indigo-100 text-indigo-800"
-                  : "text-slate-600 hover:bg-slate-100"
-              }`}
+              onClick={() => {
+                try {
+                  downloadAnalyticsCsv(code, analytics.days, buildAnalyticsCsv(analytics));
+                  setExportError(null);
+                } catch {
+                  setExportError("Could not export analytics. Please try again.");
+                }
+              }}
+              className="rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
             >
-              {range} days
+              Export CSV
             </button>
-          ))}
+          )}
+          <div aria-label="Analytics date range" className="flex gap-1">
+            {[7, 30, 90].map((range) => (
+              <button
+                key={range}
+                type="button"
+                aria-pressed={days === range}
+                onClick={() => setDays(range)}
+                className={`rounded-md px-2.5 py-1.5 text-xs font-medium ${
+                  days === range
+                    ? "bg-indigo-100 text-indigo-800"
+                    : "text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                {range} days
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -205,6 +288,11 @@ function LinkAnalyticsPanel({ code }: { code: string }) {
       {error && (
         <p role="alert" className="mt-4 text-sm text-red-700">
           {error}
+        </p>
+      )}
+      {exportError && (
+        <p role="alert" className="mt-3 text-sm text-red-700">
+          {exportError}
         </p>
       )}
       {!loading && analytics && (
@@ -234,6 +322,17 @@ function LinkAnalyticsPanel({ code }: { code: string }) {
   );
 }
 
+function downloadAnalyticsCsv(code: string, days: number, csv: string) {
+  const objectUrl = URL.createObjectURL(
+    new Blob([csv], { type: "text/csv;charset=utf-8" }),
+  );
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = `analytics-${code}-${days}d.csv`;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+}
+
 function Metric({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-lg bg-slate-50 px-3 py-2">
@@ -242,6 +341,38 @@ function Metric({ label, value }: { label: string; value: number }) {
         {value.toLocaleString()}
       </p>
     </div>
+  );
+}
+
+function QRCodePanel({ link }: { link: Link }) {
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  function download() {
+    if (!svgRef.current) return;
+    const markup = new XMLSerializer().serializeToString(svgRef.current);
+    const anchor = document.createElement("a");
+    anchor.href = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(markup)}`;
+    anchor.download = `${link.code}-qr.svg`;
+    anchor.click();
+  }
+
+  return (
+    <section
+      aria-label={`QR code for ${link.code}`}
+      className="mt-2 flex flex-col items-center gap-3 rounded-xl border border-slate-200 bg-white p-4"
+    >
+      <QRCodeSVG ref={svgRef} value={link.short_url} size={192} marginSize={4} />
+      <p className="max-w-full break-all text-center text-xs text-slate-500">
+        {link.short_url}
+      </p>
+      <button
+        type="button"
+        onClick={download}
+        className="min-h-10 rounded-lg border border-slate-200 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+      >
+        Download QR as SVG
+      </button>
+    </section>
   );
 }
 

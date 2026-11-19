@@ -55,22 +55,32 @@ func (c *LinkUseCase) Create(ctx context.Context, userID *uint, request *model.C
 		return nil, fiber.NewError(fiber.StatusBadRequest, "invalid request: url is required and must be a valid URL")
 	}
 
-	parsed, err := url.Parse(request.URL)
-	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-		return nil, fiber.NewError(fiber.StatusBadRequest, "url must start with http:// or https://")
+	if err := validateDestination(request.URL, request.ExpiresAt); err != nil {
+		return nil, err
 	}
 
-	if request.ExpiresAt != nil && !request.ExpiresAt.After(time.Now()) {
-		return nil, fiber.NewError(fiber.StatusBadRequest, "expires_at must be in the future")
+	if request.CustomCode != "" && !util.IsValidAlias(request.CustomCode) {
+		return nil, fiber.NewError(fiber.StatusBadRequest, "custom_code must be 3-16 letters, numbers, hyphens, or underscores")
+	}
+
+	tags, err := util.NormalizeTags(request.Tags)
+	if err != nil {
+		return nil, fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	if len(tags) > 0 && userID == nil {
+		return nil, fiber.ErrUnauthorized
 	}
 
 	db := c.DB.WithContext(ctx)
 
 	for i := 0; i < maxCodeRetries; i++ {
-		code, err := util.RandomCode(codeLength)
-		if err != nil {
-			c.Log.Warnf("failed to generate code: %+v", err)
-			return nil, fiber.ErrInternalServerError
+		code := request.CustomCode
+		if code == "" {
+			code, err = util.RandomCode(codeLength)
+			if err != nil {
+				c.Log.Warnf("failed to generate code: %+v", err)
+				return nil, fiber.ErrInternalServerError
+			}
 		}
 
 		link := &entity.Link{
@@ -80,8 +90,16 @@ func (c *LinkUseCase) Create(ctx context.Context, userID *uint, request *model.C
 			UserID:      userID,
 		}
 
-		err = c.LinkRepository.Create(db, link)
+		err = db.Transaction(func(tx *gorm.DB) error {
+			if err := c.LinkRepository.Create(tx, link); err != nil {
+				return err
+			}
+			return c.LinkRepository.ReplaceTags(tx, link.ID, tags)
+		})
 		if errors.Is(err, gorm.ErrDuplicatedKey) {
+			if request.CustomCode != "" {
+				return nil, fiber.NewError(fiber.StatusConflict, "custom short code is already in use")
+			}
 			continue
 		}
 		if err != nil {
@@ -89,11 +107,31 @@ func (c *LinkUseCase) Create(ctx context.Context, userID *uint, request *model.C
 			return nil, fiber.ErrInternalServerError
 		}
 
+		link.Tags = linkTags(link.ID, tags)
 		return converter.LinkToResponse(link, c.BaseURL), nil
 	}
 
 	c.Log.Warn("failed to generate unique code after retries")
 	return nil, fiber.ErrInternalServerError
+}
+
+func validateDestination(destination string, expiresAt *time.Time) error {
+	parsed, err := url.Parse(destination)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "url must start with http:// or https://")
+	}
+	if expiresAt != nil && !expiresAt.After(time.Now()) {
+		return fiber.NewError(fiber.StatusBadRequest, "expires_at must be in the future")
+	}
+	return nil
+}
+
+func linkTags(linkID uint, tags []string) []entity.LinkTag {
+	result := make([]entity.LinkTag, 0, len(tags))
+	for _, name := range tags {
+		result = append(result, entity.LinkTag{LinkID: linkID, Name: name})
+	}
+	return result
 }
 
 func (c *LinkUseCase) Resolve(
@@ -103,7 +141,7 @@ func (c *LinkUseCase) Resolve(
 ) (string, error) {
 	notFound := fiber.NewError(fiber.StatusNotFound, "link not found")
 
-	if !util.IsValidCode(code) {
+	if !util.IsValidShortCode(code) {
 		return "", notFound
 	}
 
@@ -166,23 +204,48 @@ func (c *LinkUseCase) Get(ctx context.Context, code string) (*model.LinkResponse
 	return converter.LinkToResponse(link, c.BaseURL), nil
 }
 
-func (c *LinkUseCase) ListByUser(ctx context.Context, userID uint, page, size int) (*model.ListLinksResponse, error) {
+func (c *LinkUseCase) ListByUser(
+	ctx context.Context,
+	userID uint,
+	page,
+	size int,
+	filters model.LinkListFilters,
+) (*model.ListLinksResponse, error) {
 	if page < 1 {
 		page = 1
 	}
 	if size < 1 || size > 100 {
 		size = 20
 	}
+	filters.Query = strings.TrimSpace(filters.Query)
+	filters.Status = strings.ToLower(strings.TrimSpace(filters.Status))
+	if len(filters.Query) > 200 {
+		return nil, fiber.NewError(fiber.StatusBadRequest, "search query must be at most 200 characters")
+	}
+	if filters.Status != "" && filters.Status != "active" && filters.Status != "expired" {
+		return nil, fiber.NewError(fiber.StatusBadRequest, "status must be active or expired")
+	}
+	if filters.Tag != "" {
+		tags, err := util.NormalizeTags([]string{filters.Tag})
+		if err != nil {
+			return nil, fiber.NewError(fiber.StatusBadRequest, err.Error())
+		}
+		if len(tags) == 0 {
+			filters.Tag = ""
+		} else {
+			filters.Tag = tags[0]
+		}
+	}
 
 	db := c.DB.WithContext(ctx)
 
-	total, err := c.LinkRepository.CountByUser(db, userID)
+	total, err := c.LinkRepository.CountByUser(db, userID, filters)
 	if err != nil {
 		c.Log.Warnf("failed to count links: %+v", err)
 		return nil, fiber.ErrInternalServerError
 	}
 
-	links, err := c.LinkRepository.FindByUser(db, userID, size, (page-1)*size)
+	links, err := c.LinkRepository.FindByUser(db, userID, filters, size, (page-1)*size)
 	if err != nil {
 		c.Log.Warnf("failed to list links: %+v", err)
 		return nil, fiber.ErrInternalServerError
@@ -194,6 +257,57 @@ func (c *LinkUseCase) ListByUser(ctx context.Context, userID uint, page, size in
 	}
 
 	return &model.ListLinksResponse{Items: items, Total: total, Page: page, Size: size}, nil
+}
+
+func (c *LinkUseCase) Update(
+	ctx context.Context,
+	userID uint,
+	code string,
+	request *model.UpdateLinkRequest,
+) (*model.LinkResponse, error) {
+	if err := c.Validate.Struct(request); err != nil {
+		c.Log.Warnf("invalid update request: %+v", err)
+		return nil, fiber.NewError(fiber.StatusBadRequest, "invalid request: url is required and must be a valid URL")
+	}
+	if err := validateDestination(request.URL, request.ExpiresAt); err != nil {
+		return nil, err
+	}
+	tags, err := util.NormalizeTags(request.Tags)
+	if err != nil {
+		return nil, fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+
+	db := c.DB.WithContext(ctx)
+	link := new(entity.Link)
+	err = db.Transaction(func(tx *gorm.DB) error {
+		if err := c.LinkRepository.FindByCodeAndUser(tx, code, userID, link); err != nil {
+			return err
+		}
+		if err := tx.Model(&entity.Link{}).Where("id = ?", link.ID).Updates(map[string]interface{}{
+			"original_url": request.URL,
+			"expires_at":   request.ExpiresAt,
+			"updated_at":   time.Now().UTC(),
+		}).Error; err != nil {
+			return err
+		}
+		if err := c.LinkRepository.ReplaceTags(tx, link.ID, tags); err != nil {
+			return err
+		}
+		link.OriginalURL = request.URL
+		link.ExpiresAt = request.ExpiresAt
+		link.Tags = linkTags(link.ID, tags)
+		return nil
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fiber.NewError(fiber.StatusNotFound, "link not found")
+	}
+	if err != nil {
+		c.Log.Warnf("failed to update link: %+v", err)
+		return nil, fiber.ErrInternalServerError
+	}
+
+	c.Cache.Delete(ctx, code)
+	return converter.LinkToResponse(link, c.BaseURL), nil
 }
 
 func (c *LinkUseCase) GetAnalytics(

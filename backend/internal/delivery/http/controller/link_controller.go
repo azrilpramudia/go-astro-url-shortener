@@ -63,11 +63,36 @@ func (c *LinkController) Create(ctx *fiber.Ctx) error {
 func (c *LinkController) ListMine(ctx *fiber.Ctx) error {
 	userID, _ := middleware.GetUserID(ctx)
 
-	response, err := c.UseCase.ListByUser(ctx.UserContext(), userID, ctx.QueryInt("page", 1), ctx.QueryInt("size", 20))
+	response, err := c.UseCase.ListByUser(
+		ctx.UserContext(),
+		userID,
+		ctx.QueryInt("page", 1),
+		ctx.QueryInt("size", 20),
+		model.LinkListFilters{
+			Query:  ctx.Query("q"),
+			Status: ctx.Query("status"),
+			Tag:    ctx.Query("tag"),
+		},
+	)
 	if err != nil {
 		return err
 	}
 	return ctx.JSON(model.WebResponse[*model.ListLinksResponse]{Data: response})
+}
+
+func (c *LinkController) Update(ctx *fiber.Ctx) error {
+	request := new(model.UpdateLinkRequest)
+	if err := ctx.BodyParser(request); err != nil {
+		c.Log.Warnf("failed to parse update request body: %+v", err)
+		return fiber.NewError(fiber.StatusBadRequest, "invalid request body")
+	}
+
+	userID, _ := middleware.GetUserID(ctx)
+	response, err := c.UseCase.Update(ctx.UserContext(), userID, ctx.Params("code"), request)
+	if err != nil {
+		return err
+	}
+	return ctx.JSON(model.WebResponse[*model.LinkResponse]{Data: response})
 }
 
 func (c *LinkController) Delete(ctx *fiber.Ctx) error {

@@ -6,6 +6,7 @@ export interface Link {
   clicks: number;
   expires_at?: string;
   created_at: string;
+  tags?: string[];
 }
 
 export interface User {
@@ -19,6 +20,12 @@ export interface LinkPage {
   total: number;
   page: number;
   size: number;
+}
+
+export interface LinkListFilters {
+  q?: string;
+  status?: "" | "active" | "expired";
+  tag?: string;
 }
 
 export interface AnalyticsDailyClicks {

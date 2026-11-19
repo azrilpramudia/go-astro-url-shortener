@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, getMe, listMyLinks } from "../lib/api";
 import type { Link, LinkPage, User } from "../types/link";
@@ -32,6 +32,7 @@ const link: Link = {
   original_url: "https://example.com/a-long-url",
   clicks: 3,
   created_at: "2026-11-18T00:00:00Z",
+  tags: [],
 };
 
 const linkPage: LinkPage = {
@@ -64,6 +65,39 @@ describe("LinkManager", () => {
     expect(
       await screen.findByRole("heading", { name: "Your links" }),
     ).toBeTruthy();
-    expect(screen.getByRole("link", { name: link.short_url })).toBeTruthy();
+    expect(await screen.findByRole("link", { name: link.short_url })).toBeTruthy();
+  });
+
+  it("searches the authenticated user's links using the list filters", async () => {
+    vi.mocked(getMe).mockResolvedValue(user);
+    vi.mocked(listMyLinks).mockResolvedValue(linkPage);
+    render(<LinkManager />);
+
+    const search = await screen.findByRole("searchbox", { name: "Search" });
+    fireEvent.change(search, { target: { value: "example.com" } });
+
+    await waitFor(() =>
+      expect(listMyLinks).toHaveBeenLastCalledWith(1, 20, {
+        q: "example.com",
+        status: "",
+        tag: "",
+      }),
+    );
+  });
+
+  it("loads the next server page when pagination is used", async () => {
+    vi.mocked(getMe).mockResolvedValue(user);
+    vi.mocked(listMyLinks).mockResolvedValue({ ...linkPage, total: 21 });
+    render(<LinkManager />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Next" }));
+
+    await waitFor(() =>
+      expect(listMyLinks).toHaveBeenLastCalledWith(2, 20, {
+        q: "",
+        status: "",
+        tag: "",
+      }),
+    );
   });
 });

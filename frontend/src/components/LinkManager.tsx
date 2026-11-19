@@ -1,12 +1,27 @@
 import { useEffect, useState } from "react";
 import { ApiError, deleteLink, getMe, listMyLinks, logout } from "../lib/api";
-import type { Link, User } from "../types/link";
+import type { Link, LinkPage, User } from "../types/link";
 import LinkForm from "./LinkForm";
 import LinkList from "./LinkList";
+
+const pageSize = 20;
 
 export default function LinkManager() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [links, setLinks] = useState<Link[]>([]);
+  const [linksLoaded, setLinksLoaded] = useState(false);
+  const [pageInfo, setPageInfo] = useState<LinkPage>({
+    items: [],
+    total: 0,
+    page: 1,
+    size: pageSize,
+  });
+  const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [status, setStatus] = useState<"" | "active" | "expired">("");
+  const [tag, setTag] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -16,10 +31,8 @@ export default function LinkManager() {
     async function init() {
       try {
         const me = await getMe();
-        const page = await listMyLinks();
         if (!cancelled) {
           setUser(me);
-          setLinks(page.items);
         }
       } catch (err) {
         if (cancelled) return;
@@ -40,20 +53,48 @@ export default function LinkManager() {
     };
   }, []);
 
-  async function refresh() {
+  useEffect(() => {
+    const timer = window.setTimeout(
+      () => setDebouncedQuery(query.trim()),
+      250,
+    );
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
     setBusy(true);
     setError(null);
-    try {
-      setLinks((await listMyLinks()).items);
-    } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? err.message
-          : "Something went wrong. Please try again.",
-      );
-    } finally {
-      setBusy(false);
-    }
+    listMyLinks(page, pageSize, { q: debouncedQuery, status, tag })
+      .then((result) => {
+        if (!cancelled) {
+          setLinks(result.items);
+          setPageInfo(result);
+          setLinksLoaded(true);
+        }
+      })
+      .catch((cause) => {
+        if (!cancelled) {
+          setLinksLoaded(true);
+          setError(
+            cause instanceof ApiError
+              ? cause.message
+              : "Something went wrong. Please try again.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setBusy(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, page, debouncedQuery, status, tag, reloadKey]);
+
+  async function refresh() {
+    setReloadKey((key) => key + 1);
   }
 
   async function handleRemove(code: string) {
@@ -61,7 +102,8 @@ export default function LinkManager() {
     setError(null);
     try {
       await deleteLink(code);
-      setLinks((prev) => prev.filter((l) => l.code !== code));
+      if (links.length === 1 && page > 1) setPage((current) => current - 1);
+      else setReloadKey((key) => key + 1);
     } catch (err) {
       setError(
         err instanceof ApiError
@@ -77,8 +119,28 @@ export default function LinkManager() {
     } finally {
       setUser(null);
       setLinks([]);
+      setLinksLoaded(false);
+      setPageInfo({ items: [], total: 0, page: 1, size: pageSize });
     }
   }
+
+  function handleCreated(link: Link) {
+    if (user) {
+      setPage(1);
+      setReloadKey((key) => key + 1);
+    } else {
+      setLinks((previous) => [link, ...previous]);
+    }
+  }
+
+  function handleUpdated(link: Link) {
+    setLinks((previous) =>
+      previous.map((current) => (current.code === link.code ? link : current)),
+    );
+    setReloadKey((key) => key + 1);
+  }
+
+  const pageCount = Math.max(1, Math.ceil(pageInfo.total / pageSize));
 
   if (user === undefined) {
     return (
@@ -133,7 +195,7 @@ export default function LinkManager() {
             Paste a long URL to get a shorter, shareable link.
           </p>
         </div>
-        <LinkForm onCreated={(link) => setLinks((prev) => [link, ...prev])} />
+        <LinkForm onCreated={handleCreated} authenticated={Boolean(user)} />
       </section>
 
       {error && (
@@ -171,13 +233,103 @@ export default function LinkManager() {
           )}
         </div>
 
+        {user && (
+          <div className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-[minmax(12rem,1fr)_10rem_minmax(10rem,0.7fr)]">
+            <label className="text-sm font-medium text-slate-700">
+              Search
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => {
+                  setPage(1);
+                  setQuery(event.target.value);
+                }}
+                placeholder="Code or destination URL"
+                className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="text-sm font-medium text-slate-700">
+              Status
+              <select
+                value={status}
+                onChange={(event) => {
+                  const nextStatus = event.target.value;
+                  setPage(1);
+                  if (
+                    nextStatus === "" ||
+                    nextStatus === "active" ||
+                    nextStatus === "expired"
+                  ) {
+                    setStatus(nextStatus);
+                  }
+                }}
+                className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+              >
+                <option value="">All links</option>
+                <option value="active">Active</option>
+                <option value="expired">Expired</option>
+              </select>
+            </label>
+            <label className="text-sm font-medium text-slate-700">
+              Tag
+              <input
+                type="search"
+                value={tag}
+                onChange={(event) => {
+                  setPage(1);
+                  setTag(event.target.value);
+                }}
+                placeholder="Filter by tag"
+                className="mt-1 min-h-10 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+            </label>
+          </div>
+        )}
+
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/40">
-          <LinkList
-            links={links}
-            onRemove={user ? handleRemove : undefined}
-            analyticsEnabled={Boolean(user)}
-          />
+          {user && !linksLoaded ? (
+            <p role="status" className="px-5 py-10 text-center text-sm text-slate-500">
+              Loading your links...
+            </p>
+          ) : (
+            <LinkList
+              links={links}
+              onRemove={user ? handleRemove : undefined}
+              analyticsEnabled={Boolean(user)}
+              onUpdate={user ? handleUpdated : undefined}
+            />
+          )}
         </div>
+
+        {user && (
+          <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
+            <span>
+              {busy
+                ? "Loading links..."
+                : `${pageInfo.total.toLocaleString()} links · Page ${page} of ${pageCount}`}
+            </span>
+            {pageCount > 1 && (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={page <= 1 || busy}
+                  onClick={() => setPage((current) => current - 1)}
+                  className="min-h-9 rounded-lg border border-slate-200 px-3 disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  disabled={page >= pageCount || busy}
+                  onClick={() => setPage((current) => current + 1)}
+                  className="min-h-9 rounded-lg border border-slate-200 px-3 disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {!user && links.length > 0 && (
           <p className="text-sm leading-6 text-slate-500">

@@ -142,13 +142,17 @@ Request:
 ```json
 {
   "url": "https://example.com/docs",
-  "expires_at": "2030-01-01T00:00:00Z"
+  "expires_at": "2030-01-01T00:00:00Z",
+  "custom_code": "project-docs",
+  "tags": ["docs", "launch"]
 }
 ```
 
 - `url` is required, must be a valid URL, and may be at most 2,048 characters.
 - Only `http` and `https` schemes are accepted.
 - `expires_at` is optional, must be a valid RFC 3339 timestamp, and must be in the future.
+- `custom_code` is optional. It must be 3-16 letters, numbers, hyphens, or underscores, with a letter or number at each end. It must be unique; a collision returns `409 Conflict`.
+- `tags` is optional, supports up to 10 values of at most 32 letters, numbers, hyphens, or underscores, and requires authentication.
 - If the request has a valid authenticated session, the link is owned by that account; otherwise it is created anonymously.
 - The generated code is seven characters from a base62 alphabet. The service retries up to five times if a code collides with an existing record.
 
@@ -202,15 +206,25 @@ Responses:
 
 Redirects set a first-party, HTTP-only visitor cookie when one is not already present. The database stores only an HMAC hash of its random token, the referrer hostname (not its path or query), a device category, and an optional country code. The request IP is used transiently for local GeoIP lookup and is not included in request logs or stored in analytics.
 
+### `PUT /api/links/:code`
+
+Update the destination URL, expiration, and tags for a link owned by the authenticated user. Requires the `token` session cookie. Send `expires_at: null` to remove its expiration and `tags: []` to clear its tags. A link owned by another user returns `404 Not Found`.
+
+### `DELETE /api/links/:code`
+
+Delete a link owned by the authenticated user. Its analytics events and tags are removed by database cascades. Returns `204 No Content`; a link owned by another user returns `404 Not Found`.
+
 ### `GET /api/me/links`
 
-Lists links owned by the authenticated user. Requires the `token` session cookie.
+Lists links owned by the authenticated user. Requires the `token` session cookie. Supports `page` (default `1`), `size` (default `20`, maximum `100`), `q` (matches code or destination URL), `status` (`active` or `expired`), and `tag` (exact match, case-insensitive).
 
 ### `GET /api/me/links/:code/analytics?days=30`
 
 Returns per-link click totals, daily click counts, estimated unique visitors, and top referrer, country, and device breakdowns. Requires authentication and link ownership; a link owned by another user is returned as `404 Not Found`. `days` may be `7`, `30`, or `90` and defaults to `30`.
 
-The analytics cookie is browser-based, so unique visitors are estimates rather than verified people. Country breakdowns require `GEOIP_DB_PATH`; without it, `location_available` is false and the countries list is empty.
+The analytics cookie is browser-based, so unique visitors are estimates rather than verified people. Country breakdowns require `GEOIP_DB_PATH`; without it, `location_available` is false and the countries list is empty. The dashboard can export the selected range and its breakdowns as CSV.
+
+The dashboard also provides QR-code SVG downloads, link editing, custom aliases, tag assignment, server-side search, status/tag filters, and pagination.
 
 ### `GET /api/health`
 
@@ -236,7 +250,7 @@ Migrations live in `db/migrations`. They create the `links` and `link_analytics_
 | `created_at`   | `TIMESTAMPTZ` | Defaults to the database current time.                             |
 | `updated_at`   | `TIMESTAMPTZ` | Updated by GORM on entity writes.                                  |
 
-`link_analytics_events` stores each tracked redirect with a link foreign key, an HMAC visitor identifier, a referrer hostname, device category, optional country code, and occurrence time. Raw visitor tokens, IP addresses, and user-agent strings are not stored. Deleting a link cascades to its events.
+`link_analytics_events` stores each tracked redirect with a link foreign key, an HMAC visitor identifier, a referrer hostname, device category, optional country code, and occurrence time. Raw visitor tokens, IP addresses, and user-agent strings are not stored. `link_tags` stores per-link tags and cascades when a link is deleted. Deleting a link also cascades to its analytics events.
 
 Apply and roll back migrations from `backend`:
 

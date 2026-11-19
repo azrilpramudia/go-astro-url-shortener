@@ -25,6 +25,7 @@ const link: Link = {
   original_url: "https://example.com/a-long-url",
   clicks: 0,
   created_at: "2026-11-18T00:00:00Z",
+  tags: [],
 };
 
 describe("LinkForm", () => {
@@ -63,5 +64,28 @@ describe("LinkForm", () => {
     fireEvent.click(screen.getByRole("button", { name: "Shorten" }));
 
     expect((await screen.findByRole("alert")).textContent).toBe("Invalid URL.");
+  });
+
+  it("submits a custom alias and tags for an authenticated user", async () => {
+    vi.mocked(createLink).mockResolvedValue({ ...link, tags: ["campaign"] });
+    render(<LinkForm onCreated={vi.fn()} authenticated />);
+    fireEvent.change(screen.getByLabelText("Long URL"), {
+      target: { value: link.original_url },
+    });
+    fireEvent.change(screen.getByLabelText(/Custom alias/), {
+      target: { value: "my-link" },
+    });
+    fireEvent.change(screen.getByLabelText(/Tags/), {
+      target: { value: "campaign" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Shorten" }));
+
+    expect(await screen.findByText("Short link created successfully.")).toBeTruthy();
+    expect(createLink).toHaveBeenCalledWith(
+      link.original_url,
+      undefined,
+      "my-link",
+      ["campaign"],
+    );
   });
 });

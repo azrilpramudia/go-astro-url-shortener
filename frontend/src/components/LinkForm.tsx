@@ -5,11 +5,14 @@ import type { Link } from "../types/link";
 
 interface Props {
   onCreated: (link: Link) => void;
+  authenticated?: boolean;
 }
 
-export default function LinkForm({ onCreated }: Props) {
+export default function LinkForm({ onCreated, authenticated = false }: Props) {
   const [url, setUrl] = useState("");
   const [expiresAt, setExpiresAt] = useState("");
+  const [customCode, setCustomCode] = useState("");
+  const [tags, setTags] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdLink, setCreatedLink] = useState<Link | null>(null);
@@ -23,11 +26,18 @@ export default function LinkForm({ onCreated }: Props) {
     setCopyStatus(null);
     try {
       const expires = expiresAt ? new Date(expiresAt).toISOString() : undefined;
-      const link = await createLink(url.trim(), expires);
+      const link = await createLink(
+        url.trim(),
+        expires,
+        customCode.trim() || undefined,
+        authenticated ? tags.split(",") : [],
+      );
       onCreated(link);
       setCreatedLink(link);
       setUrl("");
       setExpiresAt("");
+      setCustomCode("");
+      setTags("");
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Something went wrong.");
     } finally {
@@ -63,6 +73,39 @@ export default function LinkForm({ onCreated }: Props) {
         placeholder="https://example.com/a-very-long-url"
         className="min-h-12 w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus-visible:border-indigo-500 focus-visible:bg-white focus-visible:ring-4 focus-visible:ring-indigo-100"
       />
+      <label
+        htmlFor="custom-code"
+        className="block text-sm font-medium text-slate-700"
+      >
+        Custom alias <span className="font-normal text-slate-500">(optional)</span>
+      </label>
+      <input
+        id="custom-code"
+        type="text"
+        minLength={3}
+        maxLength={16}
+        pattern="[A-Za-z0-9][A-Za-z0-9_-]{1,14}[A-Za-z0-9]"
+        value={customCode}
+        onChange={(e) => setCustomCode(e.target.value)}
+        placeholder="my-custom-link"
+        aria-describedby="custom-code-hint"
+        className="min-h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus-visible:border-indigo-500 focus-visible:bg-white focus-visible:ring-4 focus-visible:ring-indigo-100"
+      />
+      <p id="custom-code-hint" className="text-xs text-slate-500">
+        Use 3-16 letters, numbers, hyphens, or underscores.
+      </p>
+      {authenticated && (
+        <label className="block text-sm font-medium text-slate-700">
+          Tags <span className="font-normal text-slate-500">(comma-separated)</span>
+          <input
+            type="text"
+            value={tags}
+            onChange={(e) => setTags(e.target.value)}
+            placeholder="campaign, product"
+            className="mt-2 min-h-11 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus-visible:border-indigo-500 focus-visible:bg-white focus-visible:ring-4 focus-visible:ring-indigo-100"
+          />
+        </label>
+      )}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
         <label className="block min-w-0 flex-1 text-sm font-medium text-slate-700">
           Expires at <span className="font-normal text-slate-500">(optional)</span>
