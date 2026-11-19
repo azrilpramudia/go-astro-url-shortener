@@ -16,3 +16,10 @@ type LinkResponse struct {
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 	CreatedAt   time.Time  `json:"created_at"`
 }
+
+type ListLinksResponse struct {
+	Items []LinkResponse `json:"items"`
+	Total int64          `json:"total"`
+	Page  int            `json:"page"`
+	Size  int            `json:"size"`
+}

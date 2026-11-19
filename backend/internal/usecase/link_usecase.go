@@ -43,7 +43,7 @@ func NewLinkUseCase(db *gorm.DB, log *logrus.Logger, validate *validator.Validat
 	}
 }
 
-func (c *LinkUseCase) Create(ctx context.Context, request *model.CreateLinkRequest) (*model.LinkResponse, error) {
+func (c *LinkUseCase) Create(ctx context.Context, userID *uint, request *model.CreateLinkRequest) (*model.LinkResponse, error) {
 	if err := c.Validate.Struct(request); err != nil {
 		c.Log.Warnf("invalid request body: %+v", err)
 		return nil, fiber.NewError(fiber.StatusBadRequest, "invalid request: url is required and must be a valid URL")
@@ -71,6 +71,7 @@ func (c *LinkUseCase) Create(ctx context.Context, request *model.CreateLinkReque
 			Code:        code,
 			OriginalURL: request.URL,
 			ExpiresAt:   request.ExpiresAt,
+			UserID:      userID,
 		}
 
 		err = c.LinkRepository.Create(db, link)
@@ -123,4 +124,46 @@ func (c *LinkUseCase) Get(ctx context.Context, code string) (*model.LinkResponse
 	}
 
 	return converter.LinkToResponse(link, c.BaseURL), nil
+}
+
+func (c *LinkUseCase) ListByUser(ctx context.Context, userID uint, page, size int) (*model.ListLinksResponse, error) {
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 || size > 100 {
+		size = 20
+	}
+
+	db := c.DB.WithContext(ctx)
+
+	total, err := c.LinkRepository.CountByUser(db, userID)
+	if err != nil {
+		c.Log.Warnf("failed to count links: %+v", err)
+		return nil, fiber.ErrInternalServerError
+	}
+
+	links, err := c.LinkRepository.FindByUser(db, userID, size, (page-1)*size)
+	if err != nil {
+		c.Log.Warnf("failed to list links: %+v", err)
+		return nil, fiber.ErrInternalServerError
+	}
+
+	items := make([]model.LinkResponse, 0, len(links))
+	for i := range links {
+		items = append(items, *converter.LinkToResponse(&links[i], c.BaseURL))
+	}
+
+	return &model.ListLinksResponse{Items: items, Total: total, Page: page, Size: size}, nil
+}
+
+func (c *LinkUseCase) Delete(ctx context.Context, userID uint, code string) error {
+	affected, err := c.LinkRepository.DeleteByCodeAndUser(c.DB.WithContext(ctx), code, userID)
+	if err != nil {
+		c.Log.Warnf("failed to delete link: %+v", err)
+		return fiber.ErrInternalServerError
+	}
+	if affected == 0 {
+		return fiber.NewError(fiber.StatusNotFound, "link not found")
+	}
+	return nil
 }

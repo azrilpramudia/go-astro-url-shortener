@@ -18,6 +18,10 @@ func NewViper() *viper.Viper {
 	v.SetDefault("DB_POOL_MAX", 100)
 	v.SetDefault("DB_POOL_LIFETIME", 300)
 	v.SetDefault("WEB_CORS_ORIGIN", "http://localhost:4321")
+	v.SetDefault("JWT_TTL_HOURS", 24)
+	v.SetDefault("COOKIE_SECURE", false)
+	v.SetDefault("RATE_LIMIT_CREATE", 20)
+	v.SetDefault("RATE_LIMIT_AUTH", 10)
 
 	v.AutomaticEnv()
 

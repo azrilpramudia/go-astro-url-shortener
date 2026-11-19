@@ -115,6 +115,7 @@ func TestGetLink(t *testing.T) {
 	clearLinks(t)
 
 	link := entity.Link{Code: "abc1234", OriginalURL: "https://go.dev", Clicks: 3}
+	require.NoError(t, db.Exec("TRUNCATE TABLE links, users RESTART IDENTITY").Error)
 	require.NoError(t, db.Create(&link).Error)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/links/abc1234", nil)

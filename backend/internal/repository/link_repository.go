@@ -28,3 +28,23 @@ func (r *LinkRepository) IncrementClicks(db *gorm.DB, id uint) error {
 		Where("id = ?", id).
 		UpdateColumn("clicks", gorm.Expr("clicks + 1")).Error
 }
+
+func (r *LinkRepository) FindByUser(db *gorm.DB, userID uint, limit, offset int) ([]entity.Link, error) {
+	var links []entity.Link
+	err := db.Where("user_id = ?", userID).
+		Order("created_at DESC, id DESC").
+		Limit(limit).Offset(offset).
+		Find(&links).Error
+	return links, err
+}
+
+func (r *LinkRepository) CountByUser(db *gorm.DB, userID uint) (int64, error) {
+	var total int64
+	err := db.Model(&entity.Link{}).Where("user_id = ?", userID).Count(&total).Error
+	return total, err
+}
+
+func (r *LinkRepository) DeleteByCodeAndUser(db *gorm.DB, code string, userID uint) (int64, error) {
+	res := db.Where("code = ? AND user_id = ?", code, userID).Delete(&entity.Link{})
+	return res.RowsAffected, res.Error
+}

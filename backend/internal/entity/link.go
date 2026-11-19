@@ -8,6 +8,7 @@ type Link struct {
 	OriginalURL string     `gorm:"column:original_url"`
 	Clicks      int64      `gorm:"column:clicks"`
 	ExpiresAt   *time.Time `gorm:"column:expires_at"`
+	UserID      *uint      `gorm:"column:user_id"`
 	CreatedAt   time.Time  `gorm:"column:created_at;autoCreateTime"`
 	UpdatedAt   time.Time  `gorm:"column:updated_at;autoCreateTime;autoUpdateTime"`
 }
