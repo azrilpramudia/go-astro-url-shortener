@@ -47,8 +47,11 @@ export default function LinkForm({ onCreated }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-3">
-      <label htmlFor="long-url" className="block text-sm font-medium text-slate-700">
+    <form onSubmit={handleSubmit} className="space-y-5">
+      <label
+        htmlFor="long-url"
+        className="block text-sm font-medium text-slate-700"
+      >
         Long URL
       </label>
       <input
@@ -58,34 +61,37 @@ export default function LinkForm({ onCreated }: Props) {
         value={url}
         onChange={(e) => setUrl(e.target.value)}
         placeholder="https://example.com/a-very-long-url"
-        className="min-h-12 w-full min-w-0 rounded-lg border border-slate-300 px-4 py-3 outline-none focus-visible:border-indigo-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+        className="min-h-12 w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 shadow-sm outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus-visible:border-indigo-500 focus-visible:bg-white focus-visible:ring-4 focus-visible:ring-indigo-100"
       />
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-        <label className="block w-full text-sm text-slate-600 sm:w-auto">
-          Expires at (optional){" "}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+        <label className="block min-w-0 flex-1 text-sm font-medium text-slate-700">
+          Expires at <span className="font-normal text-slate-500">(optional)</span>
           <input
             type="datetime-local"
             value={expiresAt}
             onChange={(e) => setExpiresAt(e.target.value)}
-            className="mt-1 block min-h-11 w-full min-w-0 rounded border border-slate-300 px-2 py-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 sm:ml-1 sm:mt-0 sm:inline-block sm:w-auto"
+            className="mt-2 block min-h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm outline-none transition focus-visible:border-indigo-500 focus-visible:ring-4 focus-visible:ring-indigo-100 sm:max-w-xs"
           />
         </label>
         <button
           type="submit"
           disabled={loading}
-          className="min-h-11 w-full rounded-lg bg-indigo-600 px-5 py-2.5 font-medium text-white hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-60 sm:ml-auto sm:w-auto"
+          className="min-h-12 w-full rounded-xl bg-indigo-600 px-6 py-3 font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
         >
           {loading ? "Shortening..." : "Shorten"}
         </button>
       </div>
       {error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+        >
           {error}
         </p>
       )}
       {createdLink && (
-        <section className="space-y-2 rounded-lg border border-emerald-200 bg-emerald-50 p-4">
-          <p role="status" className="font-medium text-emerald-900">
+        <section className="space-y-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 sm:p-5">
+          <p role="status" className="font-semibold text-emerald-900">
             Short link created successfully.
           </p>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -93,14 +99,14 @@ export default function LinkForm({ onCreated }: Props) {
               href={createdLink.short_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="min-w-0 break-all font-medium text-indigo-700 underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+              className="min-w-0 break-all font-semibold text-indigo-700 underline decoration-indigo-300 underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
             >
               {createdLink.short_url}
             </a>
             <button
               type="button"
               onClick={copyCreatedLink}
-              className="min-h-11 shrink-0 rounded border border-emerald-300 px-3 py-2 text-sm font-medium text-emerald-900 hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+              className="min-h-11 shrink-0 rounded-lg border border-emerald-300 bg-white px-4 py-2 text-sm font-semibold text-emerald-900 shadow-sm transition hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
             >
               {copyStatus === "copied" ? "Copied" : "Copy short link"}
             </button>

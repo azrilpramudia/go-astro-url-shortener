@@ -25,7 +25,11 @@ export default function LinkManager() {
         if (cancelled) return;
         setUser(null);
         if (!(err instanceof ApiError && err.status === 401)) {
-          setError(err instanceof ApiError ? err.message : "Terjadi kesalahan");
+          setError(
+            err instanceof ApiError
+              ? err.message
+              : "Something went wrong. Please try again.",
+          );
         }
       }
     }
@@ -42,20 +46,28 @@ export default function LinkManager() {
     try {
       setLinks((await listMyLinks()).items);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Terjadi kesalahan");
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "Something went wrong. Please try again.",
+      );
     } finally {
       setBusy(false);
     }
   }
 
   async function handleRemove(code: string) {
-    if (!window.confirm("Hapus link ini secara permanen?")) return;
+    if (!window.confirm("Permanently delete this link?")) return;
     setError(null);
     try {
       await deleteLink(code);
       setLinks((prev) => prev.filter((l) => l.code !== code));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Terjadi kesalahan");
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "Something went wrong. Please try again.",
+      );
     }
   }
 
@@ -69,74 +81,117 @@ export default function LinkManager() {
   }
 
   if (user === undefined) {
-    return <p className="text-slate-500">Memuat...</p>;
+    return (
+      <p role="status" className="py-12 text-center text-sm text-slate-500">
+        Loading your workspace...
+      </p>
+    );
   }
 
   return (
-    <div className="space-y-10">
-      <div className="flex items-center justify-end gap-4 text-sm">
+    <div className="space-y-10 sm:space-y-12">
+      <header className="flex items-center justify-end gap-3">
         {user ? (
-          <>
-            <span className="text-slate-600">Halo, {user.name}</span>
+          <nav aria-label="Account" className="flex items-center gap-2 sm:gap-4">
+            <span className="hidden max-w-40 truncate text-sm text-slate-600 sm:inline">
+              Hi, {user.name}
+            </span>
             <button
               onClick={handleLogout}
-              className="text-indigo-600 hover:underline"
+              className="min-h-10 rounded-lg px-3 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
             >
-              Keluar
+              Sign out
             </button>
-          </>
+          </nav>
         ) : (
-          <>
-            <a href="/login" className="text-indigo-600 hover:underline">
-              Masuk
+          <nav aria-label="Account" className="flex items-center gap-2 sm:gap-3">
+            <a
+              href="/login/"
+              className="inline-flex min-h-10 items-center rounded-lg px-3 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+            >
+              Sign in
             </a>
             <a
-              href="/register"
-              className="rounded bg-indigo-600 px-3 py-1.5 text-white hover:bg-indigo-700"
+              href="/register/"
+              className="inline-flex min-h-10 items-center rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
             >
-              Daftar
+              Sign up
             </a>
-          </>
+          </nav>
         )}
-      </div>
+      </header>
 
-      <LinkForm onCreated={(link) => setLinks((prev) => [link, ...prev])} />
+      <section
+        aria-label="Create a short link"
+        className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50 sm:p-7"
+      >
+        <div className="mb-5">
+          <h2 className="text-lg font-semibold tracking-tight text-slate-900">
+            Create a short link
+          </h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Paste a long URL to get a shorter, shareable link.
+          </p>
+        </div>
+        <LinkForm onCreated={(link) => setLinks((prev) => [link, ...prev])} />
+      </section>
 
       {error && (
-        <p role="alert" className="text-sm text-red-600">
+        <p
+          role="alert"
+          className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+        >
           {error}
         </p>
       )}
 
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-semibold">
-            {user ? "Link kamu" : "Link yang baru dibuat"}
-          </h2>
+      <section aria-labelledby="links-heading" className="space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2
+              id="links-heading"
+              className="text-lg font-semibold tracking-tight text-slate-900"
+            >
+              {user ? "Your links" : "Recent links"}
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              {user
+                ? "View and manage your saved short links."
+                : "Links you create will appear here."}
+            </p>
+          </div>
           {user && (
             <button
               onClick={refresh}
               disabled={busy}
-              className="text-sm text-indigo-600 hover:underline disabled:opacity-60"
+              className="min-h-10 self-start rounded-lg px-3 text-sm font-medium text-indigo-700 transition hover:bg-indigo-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:cursor-not-allowed disabled:opacity-60 sm:self-auto"
             >
-              {busy ? "Memuat..." : "Muat ulang statistik"}
+              {busy ? "Refreshing..." : "Refresh"}
             </button>
           )}
         </div>
 
-        <LinkList links={links} onRemove={user ? handleRemove : undefined} />
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/40">
+          <LinkList links={links} onRemove={user ? handleRemove : undefined} />
+        </div>
 
         {!user && links.length > 0 && (
-          <p className="mt-3 text-sm text-slate-500">
-            Link ini hanya tampil di halaman ini.{" "}
-            <a href="/login" className="text-indigo-600 hover:underline">
-              Masuk
+          <p className="text-sm leading-6 text-slate-500">
+            Links created while signed out are available only in this session.{" "}
+            <a
+              href="/login/"
+              className="font-medium text-indigo-700 hover:underline"
+            >
+              Sign in
             </a>{" "}
-            atau{" "}
-            <a href="/register" className="text-indigo-600 hover:underline">
-              daftar
+            or{" "}
+            <a
+              href="/register/"
+              className="font-medium text-indigo-700 hover:underline"
+            >
+              create an account
             </a>{" "}
-            untuk menyimpannya di dashboard.
+            to save and manage your links.
           </p>
         )}
       </section>

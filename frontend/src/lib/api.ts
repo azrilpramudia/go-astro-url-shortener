@@ -19,7 +19,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       headers: { "Content-Type": "application/json", ...init?.headers },
     });
   } catch {
-    throw new ApiError("Tidak bisa terhubung ke server", 0);
+    throw new ApiError("Unable to connect to the server.", 0);
   }
 
   if (res.status === 204) return undefined as T;
