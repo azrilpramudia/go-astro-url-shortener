@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, type SubmitEvent } from "react";
 import { ApiError, createLink } from "../lib/api";
 import { copyToClipboard } from "../lib/clipboard";
 import type { Link } from "../types/link";
@@ -15,7 +15,7 @@ export default function LinkForm({ onCreated }: Props) {
   const [createdLink, setCreatedLink] = useState<Link | null>(null);
   const [copyStatus, setCopyStatus] = useState<"copied" | "error" | null>(null);
 
-  async function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
     setError(null);

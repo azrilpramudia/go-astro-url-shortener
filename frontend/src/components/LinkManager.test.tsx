@@ -1,47 +1,69 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { getLink } from "../lib/api";
-import { loadCodes } from "../lib/storage";
+import { ApiError, getMe, listMyLinks } from "../lib/api";
+import type { Link, LinkPage, User } from "../types/link";
 import LinkManager from "./LinkManager";
 
 vi.mock("../lib/api", () => ({
-  ApiError: class extends Error {},
-  createLink: vi.fn(),
-  getLink: vi.fn(),
+  ApiError: class extends Error {
+    status: number;
+
+    constructor(message: string, status: number) {
+      super(message);
+      this.status = status;
+    }
+  },
+  deleteLink: vi.fn(),
+  getMe: vi.fn(),
+  listMyLinks: vi.fn(),
+  logout: vi.fn(),
 }));
-vi.mock("../lib/storage", () => ({
-  addCode: vi.fn(),
-  loadCodes: vi.fn(),
-  removeCode: vi.fn(),
-}));
+
+const user: User = {
+  id: 1,
+  name: "Alex",
+  email: "alex@example.com",
+};
+
+const link: Link = {
+  id: 1,
+  code: "abc1234",
+  short_url: "http://localhost:3000/abc1234",
+  original_url: "https://example.com/a-long-url",
+  clicks: 3,
+  created_at: "2026-11-18T00:00:00Z",
+};
+
+const linkPage: LinkPage = {
+  items: [link],
+  total: 1,
+  page: 1,
+  size: 20,
+};
 
 describe("LinkManager", () => {
   beforeEach(() => {
-    vi.mocked(getLink).mockReset();
-    vi.mocked(loadCodes).mockReset();
+    vi.mocked(getMe).mockReset();
+    vi.mocked(listMyLinks).mockReset();
   });
 
-  it("explains that the link list is local to this browser", async () => {
-    vi.mocked(loadCodes).mockReturnValue([]);
+  it("shows sign-in actions when no user is authenticated", async () => {
+    vi.mocked(getMe).mockRejectedValue(new ApiError("Unauthorized", 401));
+    render(<LinkManager />);
+
+    expect(await screen.findByRole("link", { name: "Sign in" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Sign up" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Recent links" })).toBeTruthy();
+  });
+
+  it("loads and displays links for the authenticated user", async () => {
+    vi.mocked(getMe).mockResolvedValue(user);
+    vi.mocked(listMyLinks).mockResolvedValue(linkPage);
     render(<LinkManager />);
 
     expect(
-      await screen.findByText(
-        "Your link list is stored in this browser only and won't sync across devices.",
-      ),
+      await screen.findByRole("heading", { name: "Your links" }),
     ).toBeTruthy();
-  });
-
-  it("shows a loading error instead of an empty-list message", async () => {
-    vi.mocked(loadCodes).mockReturnValue(["missing-code"]);
-    vi.mocked(getLink).mockRejectedValue(new Error("Not found"));
-    render(<LinkManager />);
-
-    expect(
-      await screen.findByText("Unable to load your saved links. Please try refreshing."),
-    ).toBeTruthy();
-    expect(
-      screen.queryByText("No links yet. Create your first one above."),
-    ).toBeNull();
+    expect(screen.getByRole("link", { name: link.short_url })).toBeTruthy();
   });
 });
