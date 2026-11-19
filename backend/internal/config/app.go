@@ -47,7 +47,7 @@ func Bootstrap(cfg *BootstrapConfig) (*usecase.ClickFlusher, *usecase.AnalyticsC
 	cfg.App.Use(recover.New())
 	cfg.App.Use(cors.New(cors.Config{
 		AllowOrigins:     cfg.Config.GetString("WEB_CORS_ORIGIN"),
-		AllowMethods:     "GET,POST,DELETE,OPTIONS",
+		AllowMethods:     "GET,POST,PUT,DELETE,OPTIONS",
 		AllowHeaders:     "Origin,Content-Type,Accept",
 		AllowCredentials: true,
 	}))

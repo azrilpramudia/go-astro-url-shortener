@@ -1,66 +1,96 @@
-# go-astro-url-shortener
+# Go Astro URL Shortener
 
-A URL shortener with a Go backend (clean architecture) and an Astro frontend.
+A URL shortener with a Go API and an Astro + React frontend. Authenticated users can manage links and view detailed analytics; visitors can create and use short links without an account.
 
 ## Features
 
-- Create short links from HTTP/HTTPS URLs using random Base62 codes
-- Redirect with HTTP 302 and an atomic hit counter
-- Optionally set an expiration date for each link (returns 410 Gone after expiration)
-- Choose a custom short alias
-- Rate-limit link creation per IP address
-- View per-link click trends, estimated unique visitors, referrers, countries, and device categories
-- Edit, search, filter, tag, and paginate account-owned links in the dashboard
-- Generate downloadable QR codes and export analytics to CSV
-- Optionally enable country analytics with a locally supplied GeoIP database
+- Create short links for HTTP and HTTPS URLs, with optional expiration and custom aliases.
+- Redirect with HTTP 302; expired links return 410 Gone.
+- Register and sign in to manage owned links.
+- Edit destinations, expiration dates, and tags; search, filter, and paginate links.
+- View click trends, estimated unique visitors, referrers, countries, and device categories.
+- Download QR codes as SVG and export analytics as CSV.
+- Optionally enable country analytics using a locally supplied GeoIP database.
+- Responsive dashboard layout for mobile, tablet, and desktop screens.
 
 ## Tech Stack
 
-- **Backend**: Go, Fiber, GORM, PostgreSQL, Viper, Logrus, golang-migrate
-- **Frontend**: Astro (static) + React island, Tailwind CSS
-- **Infra**: Docker Compose, nginx
+- **Backend:** Go, Fiber, GORM, PostgreSQL, Redis, golang-migrate
+- **Frontend:** Astro, React, Tailwind CSS
+- **Infrastructure:** Docker Compose, nginx
 
 ## Project Structure
 
-Complete backend documentation: [backend/docs/README.md](backend/docs/README.md).
-
-```
-backend/    # Go, clean architecture (delivery -> usecase -> repository)
-frontend/   # Astro
-docker-compose.yml
+```text
+backend/             Go API, migrations, tests, and backend documentation
+frontend/            Astro/React application and frontend documentation
+docker-compose.yml   Local infrastructure and full application profile
 ```
 
-## Run with Docker
+- Backend setup, API, configuration, and database details: [backend/docs/README.md](backend/docs/README.md)
+- Frontend setup, configuration, and available scripts: [frontend/README.md](frontend/README.md)
+
+## Run the Full App with Docker
+
+Requires Docker Compose. From the repository root:
 
 ```bash
 cd backend
 cp .env.example .env
+```
+
+Set `DB_PASSWORD` and a `JWT_SECRET` of at least 32 characters in `backend/.env`, then run:
+
+```bash
 make app-up
 ```
 
 - Frontend: http://localhost:4321
 - API: http://localhost:3000
 
-Stop the services with `make app-down`.
+The Compose profile starts PostgreSQL and Redis, applies migrations, then starts the API and frontend. Stop the services with `make app-down`; this leaves the named database volumes intact.
 
 ## Local Development
 
-Prerequisites: Go, Node.js, Docker, [air](https://github.com/air-verse/air), and [golang-migrate](https://github.com/golang-migrate/migrate).
+Prerequisites: Go (version in `backend/go.mod`), Node.js 22.23.4 or newer, Docker, `air` (optional, for Go hot reload), and the `migrate` CLI.
 
-```bash
-cd backend
-cp .env.example .env
-make db-up
-make migrate-up
-make dev
+1. Configure and start the backend dependencies:
 
-cd frontend
-cp .env.example .env
-npm install
-npm run dev
-```
+   ```bash
+   cd backend
+   cp .env.example .env
+   ```
 
-Run backend tests (using a separate `<DB_NAME>_test` database):
+   Set `DB_PASSWORD` and a `JWT_SECRET` of at least 32 characters in `.env`, then:
+
+   ```bash
+   make db-up
+   make migrate-up
+   ```
+
+2. In a backend terminal, start the API:
+
+   ```bash
+   cd backend
+   make dev
+   ```
+
+   Use `make run` instead if `air` is not installed.
+
+3. In a frontend terminal, configure and start the UI:
+
+   ```bash
+   cd frontend
+   cp .env.example .env
+   npm ci
+   npm run dev
+   ```
+
+   For local development, `PUBLIC_API_URL` should point to `http://localhost:3000`, and backend `WEB_CORS_ORIGIN` should match the frontend origin, normally `http://localhost:4321`.
+
+### Tests
+
+Backend integration tests use a separate `<DB_NAME>_test` database. Create it and apply its migrations before running the suite:
 
 ```bash
 cd backend
@@ -68,27 +98,38 @@ make test-setup
 make test
 ```
 
-Run frontend tests (no database required):
+Frontend tests do not require a database:
 
 ```bash
 cd frontend
 npm test
+npm run check
+npm run build
 ```
 
-## API
+## API Overview
 
-| Method | Path               | Description                                                                                          |
-| ------ | ------------------ | ---------------------------------------------------------------------------------------------------- |
-| POST   | `/api/links`       | Create a link; optional `custom_code`, `expires_at`, and owner-only `tags`. |
-| GET    | `/api/links/:code` | Get link details and statistics. Returns 200 or 404.                                                 |
-| PUT    | `/api/links/:code` | Update the authenticated user's destination, expiry, and tags.                                        |
-| GET    | `/api/me/links`    | List/search/filter the authenticated user's links with pagination.                                     |
-| GET    | `/api/me/links/:code/analytics?days=30` | Get owner-only analytics for 7, 30, or 90 days. |
-| DELETE | `/api/links/:code` | Delete an authenticated user's link.                                                                  |
-| GET    | `/:code`           | Redirect to the original URL. Returns 302, 404, or 410.                                              |
-| GET    | `/api/health`      | Check whether the service is reachable.                                                              |
+Authenticated routes use the session cookie set by login/register. Link ownership is enforced on update, deletion, listing, and analytics.
 
-## Configuration
+| Method | Path                                    | Description                                                                             |
+| ------ | --------------------------------------- | --------------------------------------------------------------------------------------- |
+| POST   | `/api/auth/register`                    | Register an account.                                                                    |
+| POST   | `/api/auth/login`                       | Sign in and start a session.                                                            |
+| POST   | `/api/auth/logout`                      | End the current session.                                                                |
+| GET    | `/api/auth/me`                          | Get the current authenticated user.                                                     |
+| POST   | `/api/links`                            | Create a link; supports optional `custom_code`, `expires_at`, and authenticated `tags`. |
+| GET    | `/api/links/:code`                      | Get public link details and click count.                                                |
+| PUT    | `/api/links/:code`                      | Update the authenticated owner's destination, expiration, and tags.                     |
+| DELETE | `/api/links/:code`                      | Delete the authenticated owner's link.                                                  |
+| GET    | `/api/me/links`                         | List, search, filter, and paginate the authenticated user's links.                      |
+| GET    | `/api/me/links/:code/analytics?days=30` | Get owner-only analytics for 7, 30, or 90 days.                                         |
+| GET    | `/:code`                                | Redirect to the destination; returns 302, 404, or 410.                                  |
+| GET    | `/api/health`                           | Check whether the HTTP service is reachable.                                            |
 
-See `backend/.env.example` and `frontend/.env.example`. The frontend's `PUBLIC_API_URL` is embedded at build time.
-Analytics event retention defaults to 90 days. Country analytics require a MaxMind-compatible `.mmdb` file configured with `GEOIP_DB_PATH`; the database is not included in this repository.
+See the [backend API reference](backend/docs/README.md#http-api) for request fields, validation, and response details.
+
+## Configuration Notes
+
+- Backend settings are documented in [backend/.env.example](backend/.env.example). `WEB_CORS_ORIGIN` must match the browser-facing frontend origin.
+- Frontend `PUBLIC_API_URL` is embedded at build time; set it to the API URL reachable by the user's browser.
+- Analytics events are retained for 90 days by default. Country analytics require a MaxMind-compatible `.mmdb` file configured with `GEOIP_DB_PATH`; the database is not included.
