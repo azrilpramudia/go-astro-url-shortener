@@ -172,7 +172,11 @@ export default function LinkManager() {
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/40">
-          <LinkList links={links} onRemove={user ? handleRemove : undefined} />
+          <LinkList
+            links={links}
+            onRemove={user ? handleRemove : undefined}
+            analyticsEnabled={Boolean(user)}
+          />
         </div>
 
         {!user && links.length > 0 && (

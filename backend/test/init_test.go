@@ -14,11 +14,12 @@ import (
 )
 
 var (
-	app         *fiber.App
-	db          *gorm.DB
-	redisClient *redis.Client
-	flusher     *usecase.ClickFlusher
-	viperConfig *viper.Viper
+	app              *fiber.App
+	db               *gorm.DB
+	redisClient      *redis.Client
+	flusher          *usecase.ClickFlusher
+	analyticsCleaner *usecase.AnalyticsCleaner
+	viperConfig      *viper.Viper
 )
 
 func init() {
@@ -38,7 +39,7 @@ func init() {
 	redisClient = config.NewRedis(viperConfig, log)
 	app = config.NewFiber(viperConfig)
 
-	flusher = config.Bootstrap(&config.BootstrapConfig{
+	flusher, analyticsCleaner = config.Bootstrap(&config.BootstrapConfig{
 		DB:       db,
 		Redis:    redisClient,
 		App:      app,

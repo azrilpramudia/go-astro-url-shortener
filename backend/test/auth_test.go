@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"go-astro-url-shortener/internal/entity"
 	"go-astro-url-shortener/internal/model"
 
 	"github.com/stretchr/testify/assert"
@@ -150,6 +152,42 @@ func TestLinkOwnership(t *testing.T) {
 	resp := doJSON(t, http.MethodPost, "/api/links", `{"url":"https://go.dev"}`, alice)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)
 	aliceCode := decode[model.LinkResponse](t, resp).Code
+	link := entity.Link{}
+	require.NoError(t, db.Where("code = ?", aliceCode).Take(&link).Error)
+	now := time.Now().UTC()
+	require.NoError(t, db.Create(&[]entity.LinkAnalyticsEvent{
+		{
+			LinkID:       link.ID,
+			VisitorHash:  "hashed-visitor",
+			ReferrerHost: "news.example",
+			DeviceType:   "mobile",
+			CountryCode:  "ID",
+			OccurredAt:   now,
+		},
+		{
+			LinkID:       link.ID,
+			VisitorHash:  "hashed-visitor",
+			ReferrerHost: "news.example",
+			DeviceType:   "mobile",
+			CountryCode:  "ID",
+			OccurredAt:   now.Add(time.Second),
+		},
+	}).Error)
+
+	resp = doJSON(t, http.MethodGet, "/api/me/links/"+aliceCode+"/analytics?days=30", "", alice)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	analytics := decode[model.LinkAnalyticsResponse](t, resp)
+	assert.Equal(t, int64(2), analytics.TotalClicks)
+	assert.Equal(t, int64(1), analytics.UniqueVisitors)
+	require.Len(t, analytics.Referrers, 1)
+	assert.Equal(t, "news.example", analytics.Referrers[0].Name)
+	assert.Equal(t, "mobile", analytics.Devices[0].Name)
+	assert.Equal(t, "ID", analytics.Countries[0].Name)
+
+	resp = doJSON(t, http.MethodGet, "/api/me/links/"+aliceCode+"/analytics", "", bob)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	resp = doJSON(t, http.MethodGet, "/api/me/links/"+aliceCode+"/analytics", "", nil)
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
 
 	resp = doJSON(t, http.MethodPost, "/api/links", `{"url":"https://astro.build"}`, nil)
 	require.Equal(t, http.StatusCreated, resp.StatusCode)

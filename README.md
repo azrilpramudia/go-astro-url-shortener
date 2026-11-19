@@ -8,8 +8,9 @@ A URL shortener with a Go backend (clean architecture) and an Astro frontend.
 - Redirect with HTTP 302 and an atomic hit counter
 - Optionally set an expiration date for each link (returns 410 Gone after expiration)
 - Rate-limit link creation per IP address
-- View link statistics in the frontend dashboard
-- Links are stored only in this browser and are not synced across devices. The Remove button does not delete links from the server.
+- View per-link click trends, estimated unique visitors, referrers, countries, and device categories
+- Manage account-owned links and view their analytics in the frontend dashboard
+- Optionally enable country analytics with a locally supplied GeoIP database
 
 ## Tech Stack
 
@@ -78,9 +79,13 @@ npm test
 | ------ | ------------------ | ---------------------------------------------------------------------------------------------------- |
 | POST   | `/api/links`       | Create a link. Body: `{"url": "...", "expires_at": "RFC3339 (optional)"}`. Returns 201, 400, or 429. |
 | GET    | `/api/links/:code` | Get link details and statistics. Returns 200 or 404.                                                 |
+| GET    | `/api/me/links`    | List the authenticated user's links.                                                                 |
+| GET    | `/api/me/links/:code/analytics?days=30` | Get owner-only analytics for 7, 30, or 90 days. |
+| DELETE | `/api/links/:code` | Delete an authenticated user's link.                                                                  |
 | GET    | `/:code`           | Redirect to the original URL. Returns 302, 404, or 410.                                              |
-| GET    | `/api/hello`       | Check whether the service is reachable.                                                              |
+| GET    | `/api/health`      | Check whether the service is reachable.                                                              |
 
 ## Configuration
 
 See `backend/.env.example` and `frontend/.env.example`. The frontend's `PUBLIC_API_URL` is embedded at build time.
+Analytics event retention defaults to 90 days. Country analytics require a MaxMind-compatible `.mmdb` file configured with `GEOIP_DB_PATH`; the database is not included in this repository.

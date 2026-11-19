@@ -26,6 +26,8 @@ func NewViper() *viper.Viper {
 	v.SetDefault("REDIS_DB", 0)
 	v.SetDefault("CACHE_TTL_SECONDS", 600)
 	v.SetDefault("CLICK_FLUSH_SECONDS", 15)
+	v.SetDefault("ANALYTICS_RETENTION_DAYS", 90)
+	v.SetDefault("GEOIP_DB_PATH", "")
 
 	v.AutomaticEnv()
 

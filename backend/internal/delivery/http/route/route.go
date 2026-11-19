@@ -45,6 +45,7 @@ func (c *RouteConfig) Setup() {
 	// links
 	c.App.Post("/api/links", newLimiter(c.CreateLimit), c.OptionalAuth, c.LinkController.Create)
 	c.App.Get("/api/me/links", c.RequireAuth, c.LinkController.ListMine)
+	c.App.Get("/api/me/links/:code/analytics", c.RequireAuth, c.LinkController.Analytics)
 	c.App.Get("/api/links/:code", c.LinkController.Get)
 	c.App.Delete("/api/links/:code", c.RequireAuth, c.LinkController.Delete)
 	c.App.Get("/:code", c.LinkController.Redirect)

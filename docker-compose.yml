@@ -74,8 +74,12 @@ services:
       REDIS_DB: ${REDIS_DB:-0}
       CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-600}
       CLICK_FLUSH_SECONDS: ${CLICK_FLUSH_SECONDS:-15}
+      ANALYTICS_RETENTION_DAYS: ${ANALYTICS_RETENTION_DAYS:-90}
+      GEOIP_DB_PATH: ${GEOIP_DB_PATH:-}
     ports:
       - "${WEB_PORT:-3000}:3000"
+    volumes:
+      - ./backend/data:/app/data:ro
     depends_on:
       migrate:
         condition: service_completed_successfully

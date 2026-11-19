@@ -1,5 +1,11 @@
 import { PUBLIC_API_URL } from "astro:env/client";
-import type { ApiResponse, Link, LinkPage, User } from "../types/link";
+import type {
+  ApiResponse,
+  Link,
+  LinkAnalytics,
+  LinkPage,
+  User,
+} from "../types/link";
 
 export class ApiError extends Error {
   status: number;
@@ -56,6 +62,11 @@ export const createLink = (url: string, expiresAt?: string) =>
 
 export const listMyLinks = (page = 1, size = 50) =>
   request<LinkPage>(`/api/me/links?page=${page}&size=${size}`);
+
+export const getLinkAnalytics = (code: string, days = 30) =>
+  request<LinkAnalytics>(
+    `/api/me/links/${encodeURIComponent(code)}/analytics?days=${days}`,
+  );
 
 export const deleteLink = (code: string) =>
   request<void>(`/api/links/${encodeURIComponent(code)}`, { method: "DELETE" });

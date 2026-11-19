@@ -18,7 +18,7 @@ import (
 
 func clearLinks(t *testing.T) {
 	t.Helper()
-	require.NoError(t, db.Exec("TRUNCATE TABLE links, users RESTART IDENTITY").Error)
+	require.NoError(t, db.Exec("TRUNCATE TABLE link_analytics_events, links, users RESTART IDENTITY").Error)
 	require.NoError(t, redisClient.FlushDB(context.Background()).Err())
 }
 
@@ -37,6 +37,17 @@ func getCode(t *testing.T, code string) *http.Response {
 	resp, err := app.Test(req)
 	require.NoError(t, err)
 	return resp
+}
+
+func visitorCookie(t *testing.T, resp *http.Response) *http.Cookie {
+	t.Helper()
+	for _, cookie := range resp.Cookies() {
+		if cookie.Name == "url_shortener_visitor" {
+			return cookie
+		}
+	}
+	t.Fatal("visitor cookie not set")
+	return nil
 }
 
 func TestCreateLink_Success(t *testing.T) {
@@ -85,12 +96,45 @@ func TestRedirect_Success(t *testing.T) {
 	resp := getCode(t, "abc1234")
 	assert.Equal(t, http.StatusFound, resp.StatusCode)
 	assert.Equal(t, "https://go.dev", resp.Header.Get("Location"))
+	cookie := visitorCookie(t, resp)
+	assert.True(t, cookie.HttpOnly)
 
 	require.NoError(t, flusher.Flush(context.Background()))
 
 	var updated entity.Link
 	require.NoError(t, db.First(&updated, link.ID).Error)
 	assert.Equal(t, int64(1), updated.Clicks)
+
+	var event entity.LinkAnalyticsEvent
+	require.NoError(t, db.Where("link_id = ?", link.ID).Take(&event).Error)
+	assert.NotEmpty(t, event.VisitorHash)
+	assert.NotEqual(t, cookie.Value, event.VisitorHash)
+	assert.Equal(t, "unknown", event.DeviceType)
+}
+
+func TestRedirect_ReusesVisitorCookieAndCapturesMetadata(t *testing.T) {
+	clearLinks(t)
+
+	link := entity.Link{Code: "visit12", OriginalURL: "https://go.dev"}
+	require.NoError(t, db.Create(&link).Error)
+
+	firstResponse := getCode(t, link.Code)
+	cookie := visitorCookie(t, firstResponse)
+
+	req := httptest.NewRequest(http.MethodGet, "/"+link.Code, nil)
+	req.AddCookie(cookie)
+	req.Header.Set("Referer", "https://news.example/story?private=value")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (iPhone) Mobile")
+	secondResponse, err := app.Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusFound, secondResponse.StatusCode)
+
+	var events []entity.LinkAnalyticsEvent
+	require.NoError(t, db.Where("link_id = ?", link.ID).Order("occurred_at ASC").Find(&events).Error)
+	require.Len(t, events, 2)
+	assert.Equal(t, events[0].VisitorHash, events[1].VisitorHash)
+	assert.Equal(t, "news.example", events[1].ReferrerHost)
+	assert.Equal(t, "mobile", events[1].DeviceType)
 }
 
 func TestRedirect_NotFound(t *testing.T) {
@@ -119,7 +163,7 @@ func TestGetLink(t *testing.T) {
 	clearLinks(t)
 
 	link := entity.Link{Code: "abc1234", OriginalURL: "https://go.dev", Clicks: 3}
-	require.NoError(t, db.Exec("TRUNCATE TABLE links, users RESTART IDENTITY").Error)
+	require.NoError(t, db.Exec("TRUNCATE TABLE link_analytics_events, links, users RESTART IDENTITY").Error)
 	require.NoError(t, db.Create(&link).Error)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/links/abc1234", nil)
@@ -135,4 +179,33 @@ func TestGetLink(t *testing.T) {
 	resp, err = app.Test(req)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestAnalyticsCleanupRemovesExpiredEvents(t *testing.T) {
+	clearLinks(t)
+
+	link := entity.Link{Code: "clean12", OriginalURL: "https://go.dev"}
+	require.NoError(t, db.Create(&link).Error)
+	now := time.Now().UTC()
+	require.NoError(t, db.Create(&[]entity.LinkAnalyticsEvent{
+		{
+			LinkID:      link.ID,
+			VisitorHash: "old-visitor",
+			DeviceType:  "desktop",
+			OccurredAt:  now.Add(-91 * 24 * time.Hour),
+		},
+		{
+			LinkID:      link.ID,
+			VisitorHash: "recent-visitor",
+			DeviceType:  "mobile",
+			OccurredAt:  now.Add(-89 * 24 * time.Hour),
+		},
+	}).Error)
+
+	analyticsCleaner.Cleanup(context.Background())
+
+	var events []entity.LinkAnalyticsEvent
+	require.NoError(t, db.Where("link_id = ?", link.ID).Find(&events).Error)
+	require.Len(t, events, 1)
+	assert.Equal(t, "recent-visitor", events[0].VisitorHash)
 }

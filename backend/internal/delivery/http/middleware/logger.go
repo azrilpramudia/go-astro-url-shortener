@@ -25,7 +25,6 @@ func RequestLogger(log *logrus.Logger) fiber.Handler {
 			"path":     ctx.Path(),
 			"status":   status,
 			"duration": time.Since(start).String(),
-			"ip":       ctx.IP(),
 		}).Info("request")
 
 		return err

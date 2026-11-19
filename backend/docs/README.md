@@ -4,9 +4,7 @@ This document describes the Go backend, its HTTP API, configuration, database sc
 
 ## Overview
 
-The backend is a Go HTTP service built with Fiber. It creates short links, redirects visitors to their original URLs, and exposes link click statistics. PostgreSQL stores link records and GORM handles database operations.
-
-The application does not currently provide user accounts, authentication, a global link-list endpoint, or a server-side delete endpoint. The frontend keeps the codes for its own list in browser storage.
+The backend is a Go HTTP service built with Fiber. It creates short links, redirects visitors to their original URLs, and provides authenticated link management and per-link analytics. PostgreSQL stores link and analytics records, GORM handles database operations, and Redis buffers click counters and caches redirects.
 
 ## Architecture
 
@@ -16,11 +14,11 @@ The application follows a small layered structure:
 2. `internal/config` constructs infrastructure and registers middleware and routes.
 3. HTTP routes dispatch to controllers.
 4. Controllers parse requests and serialize responses.
-5. Use cases validate input and implement link creation, lookup, redirect, expiration, and click-count behavior.
+5. Use cases validate input and implement authentication, link management, redirect, click counting, analytics, and retention.
 6. Repositories perform database operations through GORM.
 7. Entities represent persisted records; models and converters define HTTP request and response data.
 
-The redirect path increments the click count with a database-side atomic update. If that update fails, the error is logged and the redirect still proceeds.
+The redirect path buffers click counts in Redis and records an analytics event. If analytics storage fails, the error is logged and the redirect still proceeds.
 
 ## Requirements
 
@@ -75,6 +73,7 @@ make app-down
 `app-down` stops and removes the Compose containers but leaves the named PostgreSQL volume in place. Do not remove that volume unless you intend to delete the stored database data.
 
 The backend container is built from a multi-stage Dockerfile and runs as a non-root user in a distroless image.
+To enable country analytics in Compose, place a MaxMind-compatible country database under `backend/data/` and set `GEOIP_DB_PATH` to its path relative to `backend` (for example, `./data/GeoLite2-Country.mmdb`). Compose mounts that directory read-only into the backend. The database is not distributed with this project.
 
 ## Configuration
 
@@ -96,6 +95,13 @@ Configuration is read from environment variables and an `.env` file. The loader 
 | `DB_POOL_IDLE`     | `10`                                      | Maximum idle connections.                                                                                                            |
 | `DB_POOL_MAX`      | `100`                                     | Maximum open connections.                                                                                                            |
 | `DB_POOL_LIFETIME` | `300`                                     | Connection lifetime in seconds.                                                                                                      |
+| `JWT_SECRET` | Set in `.env` | Signing secret; must contain at least 32 characters. |
+| `COOKIE_SECURE` | `false` | Mark authentication and analytics cookies as Secure; enable when serving over HTTPS. |
+| `REDIS_ADDR` | `localhost:6379` | Redis address; use `redis:6379` from the Compose backend container. |
+| `CACHE_TTL_SECONDS` | `600` | Redirect cache lifetime. |
+| `CLICK_FLUSH_SECONDS` | `15` | Interval for flushing buffered click counts to PostgreSQL. |
+| `ANALYTICS_RETENTION_DAYS` | `90` | Retention period for detailed analytics events. Expired events are removed daily. |
+| `GEOIP_DB_PATH` | Empty | Optional local `.mmdb` path for country lookup. When unset, country analytics are unavailable. |
 
 The PostgreSQL DSN currently sets `sslmode=disable` and `TimeZone=Asia/Jakarta`. Review the database transport settings before exposing the service outside a trusted local or container network.
 
@@ -143,6 +149,7 @@ Request:
 - `url` is required, must be a valid URL, and may be at most 2,048 characters.
 - Only `http` and `https` schemes are accepted.
 - `expires_at` is optional, must be a valid RFC 3339 timestamp, and must be in the future.
+- If the request has a valid authenticated session, the link is owned by that account; otherwise it is created anonymously.
 - The generated code is seven characters from a base62 alphabet. The service retries up to five times if a code collides with an existing record.
 
 Example:
@@ -193,7 +200,19 @@ Responses:
 - `404 Not Found` — code does not exist.
 - `410 Gone` — link has expired.
 
-### `GET /api/hello`
+Redirects set a first-party, HTTP-only visitor cookie when one is not already present. The database stores only an HMAC hash of its random token, the referrer hostname (not its path or query), a device category, and an optional country code. The request IP is used transiently for local GeoIP lookup and is not included in request logs or stored in analytics.
+
+### `GET /api/me/links`
+
+Lists links owned by the authenticated user. Requires the `token` session cookie.
+
+### `GET /api/me/links/:code/analytics?days=30`
+
+Returns per-link click totals, daily click counts, estimated unique visitors, and top referrer, country, and device breakdowns. Requires authentication and link ownership; a link owned by another user is returned as `404 Not Found`. `days` may be `7`, `30`, or `90` and defaults to `30`.
+
+The analytics cookie is browser-based, so unique visitors are estimates rather than verified people. Country breakdowns require `GEOIP_DB_PATH`; without it, `location_available` is false and the countries list is empty.
+
+### `GET /api/health`
 
 Returns a simple response for checking that the HTTP service is reachable:
 
@@ -201,11 +220,11 @@ Returns a simple response for checking that the HTTP service is reachable:
 { "status": "ok" }
 ```
 
-This endpoint does not verify PostgreSQL connectivity. There is currently no `/api/health` route.
+This endpoint does not verify PostgreSQL or Redis connectivity.
 
 ## Database and Migrations
 
-Migrations live in `db/migrations`. The initial migration creates the `links` table:
+Migrations live in `db/migrations`. They create the `links` and `link_analytics_events` tables:
 
 | Column         | Type          | Notes                                                              |
 | -------------- | ------------- | ------------------------------------------------------------------ |
@@ -216,6 +235,8 @@ Migrations live in `db/migrations`. The initial migration creates the `links` ta
 | `expires_at`   | `TIMESTAMPTZ` | Nullable expiration timestamp.                                     |
 | `created_at`   | `TIMESTAMPTZ` | Defaults to the database current time.                             |
 | `updated_at`   | `TIMESTAMPTZ` | Updated by GORM on entity writes.                                  |
+
+`link_analytics_events` stores each tracked redirect with a link foreign key, an HMAC visitor identifier, a referrer hostname, device category, optional country code, and occurrence time. Raw visitor tokens, IP addresses, and user-agent strings are not stored. Deleting a link cascades to its events.
 
 Apply and roll back migrations from `backend`:
 
@@ -234,7 +255,7 @@ make migrate-create name=add_link_metadata
 
 ## Testing
 
-The Go test package is an integration suite and connects to a separate database named `<DB_NAME>_test`. It truncates the `links` table between tests. Never point the test database configuration at production data.
+The Go test package is an integration suite and connects to a separate database named `<DB_NAME>_test`. It truncates link, user, and analytics-event tables between tests. Never point the test database configuration at production data.
 
 Create the test database and apply its migrations:
 
@@ -250,13 +271,13 @@ make test
 
 ## Middleware, Errors, and Operational Notes
 
-- Request logging records the HTTP method, path, status, duration, and client IP as JSON.
+- Request logging records the HTTP method, path, status, and duration as JSON; it omits client IP addresses.
 - Fiber's recovery middleware is enabled.
 - CORS allows `GET`, `POST`, and `OPTIONS`, and the `Origin`, `Content-Type`, and `Accept` headers. The allowed origin is controlled by `WEB_CORS_ORIGIN`.
-- CORS is a browser policy, not authentication. The API currently has no authentication or authorization.
+- CORS is a browser policy, not authentication. Authenticated link management and analytics require a valid session cookie.
 - The create rate limiter is process-local; multiple backend replicas do not share limiter state.
 - Internal failures are logged. The HTTP error handler returns JSON with an `errors` field.
-- Only create, detail lookup, and redirect operations are exposed. There are no API endpoints to list every link, update a link, or delete a stored link.
+- Link analytics are scoped to the authenticated owner. Deleting a link also deletes its analytics events.
 
 ## Useful Make Targets
 

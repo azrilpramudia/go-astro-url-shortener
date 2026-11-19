@@ -7,6 +7,7 @@ import (
 	"go-astro-url-shortener/internal/delivery/http/middleware"
 	"go-astro-url-shortener/internal/delivery/http/route"
 	"go-astro-url-shortener/internal/gateway/cache"
+	"go-astro-url-shortener/internal/gateway/geoip"
 	"go-astro-url-shortener/internal/repository"
 	"go-astro-url-shortener/internal/usecase"
 	"go-astro-url-shortener/internal/util"
@@ -28,12 +29,17 @@ type BootstrapConfig struct {
 	Validate *validator.Validate
 	Config   *viper.Viper
 	Redis    *redis.Client
+	GeoIP    *geoip.Locator
 }
 
-func Bootstrap(cfg *BootstrapConfig) *usecase.ClickFlusher {
+func Bootstrap(cfg *BootstrapConfig) (*usecase.ClickFlusher, *usecase.AnalyticsCleaner) {
 	secret := cfg.Config.GetString("JWT_SECRET")
 	if len(secret) < 32 {
 		cfg.Log.Fatal("JWT_SECRET must be set and at least 32 characters long")
+	}
+	retentionDays := cfg.Config.GetInt("ANALYTICS_RETENTION_DAYS")
+	if retentionDays < 1 {
+		cfg.Log.Fatal("ANALYTICS_RETENTION_DAYS must be greater than zero")
 	}
 	tokens := util.NewTokenManager(secret, time.Duration(cfg.Config.GetInt("JWT_TTL_HOURS"))*time.Hour)
 
@@ -49,6 +55,7 @@ func Bootstrap(cfg *BootstrapConfig) *usecase.ClickFlusher {
 	// repository
 	linkRepository := repository.NewLinkRepository(cfg.Log)
 	userRepository := repository.NewUserRepository(cfg.Log)
+	analyticsRepository := repository.NewAnalyticsRepository()
 
 	linkCache := cache.NewLinkCache(
 		cfg.Redis, cfg.Log,
@@ -56,14 +63,21 @@ func Bootstrap(cfg *BootstrapConfig) *usecase.ClickFlusher {
 	)
 
 	linkUseCase := usecase.NewLinkUseCase(
-		cfg.DB, cfg.Log, cfg.Validate, linkRepository, linkCache,
+		cfg.DB, cfg.Log, cfg.Validate, linkRepository, analyticsRepository, linkCache,
 		cfg.Config.GetString("APP_BASE_URL"),
 	)
 
 	userUseCase := usecase.NewUserUseCase(cfg.DB, cfg.Log, cfg.Validate, userRepository, tokens)
 
 	// controller
-	linkController := controller.NewLinkController(cfg.Log, linkUseCase)
+	linkController := controller.NewLinkController(
+		cfg.Log,
+		linkUseCase,
+		cfg.GeoIP,
+		secret,
+		time.Duration(retentionDays)*24*time.Hour,
+		cfg.Config.GetBool("COOKIE_SECURE"),
+	)
 	userController := controller.NewUserController(
 		cfg.Log, userUseCase, cfg.Config.GetBool("COOKIE_SECURE"), tokens.TTL,
 	)
@@ -80,8 +94,15 @@ func Bootstrap(cfg *BootstrapConfig) *usecase.ClickFlusher {
 	}
 	routeConfig.Setup()
 
-	return usecase.NewClickFlusher(
+	flusher := usecase.NewClickFlusher(
 		cfg.DB, cfg.Log, linkCache, linkRepository,
 		time.Duration(cfg.Config.GetInt("CLICK_FLUSH_SECONDS"))*time.Second,
 	)
+	cleaner := usecase.NewAnalyticsCleaner(
+		analyticsRepository,
+		cfg.DB,
+		cfg.Log,
+		time.Duration(retentionDays)*24*time.Hour,
+	)
+	return flusher, cleaner
 }

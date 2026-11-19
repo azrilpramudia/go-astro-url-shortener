@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"go-astro-url-shortener/internal/config"
+	"go-astro-url-shortener/internal/gateway/geoip"
 )
 
 func main() {
@@ -18,20 +19,33 @@ func main() {
 	redisClient := config.NewRedis(viper, log)
 	validate := config.NewValidator()
 	app := config.NewFiber(viper)
+	geoIP, err := geoip.Open(viper.GetString("GEOIP_DB_PATH"), log)
+	if err != nil {
+		log.Fatalf("failed to open GeoIP database: %v", err)
+	}
+	if geoIP != nil {
+		defer func() {
+			if err := geoIP.Close(); err != nil {
+				log.Warnf("failed to close GeoIP database: %v", err)
+			}
+		}()
+	}
 
-	flusher := config.Bootstrap(&config.BootstrapConfig{
+	flusher, analyticsCleaner := config.Bootstrap(&config.BootstrapConfig{
 		DB:       db,
 		Redis:    redisClient,
 		App:      app,
 		Log:      log,
 		Validate: validate,
 		Config:   viper,
+		GeoIP:    geoIP,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	go flusher.Run(ctx)
+	go analyticsCleaner.Run(ctx)
 
 	go func() {
 		if err := app.Listen(fmt.Sprintf(":%d", viper.GetInt("WEB_PORT"))); err != nil {

@@ -26,23 +26,26 @@ const (
 )
 
 type LinkUseCase struct {
-	DB             *gorm.DB
-	Log            *logrus.Logger
-	Validate       *validator.Validate
-	LinkRepository *repository.LinkRepository
-	Cache          *cache.LinkCache
-	BaseURL        string
+	DB                  *gorm.DB
+	Log                 *logrus.Logger
+	Validate            *validator.Validate
+	LinkRepository      *repository.LinkRepository
+	AnalyticsRepository *repository.AnalyticsRepository
+	Cache               *cache.LinkCache
+	BaseURL             string
 }
 
 func NewLinkUseCase(db *gorm.DB, log *logrus.Logger, validate *validator.Validate,
-	linkRepository *repository.LinkRepository, linkCache *cache.LinkCache, baseURL string) *LinkUseCase {
+	linkRepository *repository.LinkRepository, analyticsRepository *repository.AnalyticsRepository,
+	linkCache *cache.LinkCache, baseURL string) *LinkUseCase {
 	return &LinkUseCase{
-		DB:             db,
-		Log:            log,
-		Validate:       validate,
-		LinkRepository: linkRepository,
-		Cache:          linkCache,
-		BaseURL:        strings.TrimRight(baseURL, "/"),
+		DB:                  db,
+		Log:                 log,
+		Validate:            validate,
+		LinkRepository:      linkRepository,
+		AnalyticsRepository: analyticsRepository,
+		Cache:               linkCache,
+		BaseURL:             strings.TrimRight(baseURL, "/"),
 	}
 }
 
@@ -93,7 +96,11 @@ func (c *LinkUseCase) Create(ctx context.Context, userID *uint, request *model.C
 	return nil, fiber.ErrInternalServerError
 }
 
-func (c *LinkUseCase) Resolve(ctx context.Context, code string) (string, error) {
+func (c *LinkUseCase) Resolve(
+	ctx context.Context,
+	code string,
+	analytics model.RedirectAnalytics,
+) (string, error) {
 	notFound := fiber.NewError(fiber.StatusNotFound, "link not found")
 
 	if !util.IsValidCode(code) {
@@ -123,6 +130,17 @@ func (c *LinkUseCase) Resolve(ctx context.Context, code string) (string, error) 
 	}
 
 	c.countClick(ctx, entry.ID)
+	event := &entity.LinkAnalyticsEvent{
+		LinkID:       entry.ID,
+		VisitorHash:  analytics.VisitorHash,
+		ReferrerHost: analytics.ReferrerHost,
+		DeviceType:   analytics.DeviceType,
+		CountryCode:  analytics.CountryCode,
+		OccurredAt:   time.Now().UTC(),
+	}
+	if err := c.AnalyticsRepository.Create(c.DB.WithContext(ctx), event); err != nil {
+		c.Log.Warnf("failed to record analytics for link %d: %+v", entry.ID, err)
+	}
 	return entry.URL, nil
 }
 
@@ -176,6 +194,67 @@ func (c *LinkUseCase) ListByUser(ctx context.Context, userID uint, page, size in
 	}
 
 	return &model.ListLinksResponse{Items: items, Total: total, Page: page, Size: size}, nil
+}
+
+func (c *LinkUseCase) GetAnalytics(
+	ctx context.Context,
+	userID uint,
+	code string,
+	days int,
+) (*model.LinkAnalyticsResponse, error) {
+	if days != 7 && days != 30 && days != 90 {
+		return nil, fiber.NewError(fiber.StatusBadRequest, "days must be 7, 30, or 90")
+	}
+
+	link := new(entity.Link)
+	if err := c.LinkRepository.FindByCodeAndUser(c.DB.WithContext(ctx), code, userID, link); err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fiber.NewError(fiber.StatusNotFound, "link not found")
+		}
+		c.Log.Warnf("failed to find link for analytics: %+v", err)
+		return nil, fiber.ErrInternalServerError
+	}
+
+	until := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, 1)
+	from := until.AddDate(0, 0, -days)
+	summary, err := c.AnalyticsRepository.Summary(c.DB.WithContext(ctx), link.ID, from, until)
+	if err != nil {
+		c.Log.Warnf("failed to load analytics for link %d: %+v", link.ID, err)
+		return nil, fiber.ErrInternalServerError
+	}
+
+	clicksByDate := make(map[string]int64, len(summary.ClicksByDay))
+	for _, day := range summary.ClicksByDay {
+		clicksByDate[day.Date] = day.Clicks
+	}
+
+	clicksByDay := make([]model.AnalyticsDailyClicks, 0, days)
+	for date := from; date.Before(until); date = date.AddDate(0, 0, 1) {
+		day := date.Format("2006-01-02")
+		clicksByDay = append(clicksByDay, model.AnalyticsDailyClicks{
+			Date:   day,
+			Clicks: clicksByDate[day],
+		})
+	}
+
+	toBreakdown := func(items []repository.AnalyticsBreakdown) []model.AnalyticsBreakdown {
+		result := make([]model.AnalyticsBreakdown, 0, len(items))
+		for _, item := range items {
+			result = append(result, model.AnalyticsBreakdown{Name: item.Name, Count: item.Count})
+		}
+		return result
+	}
+
+	return &model.LinkAnalyticsResponse{
+		Days:           days,
+		Since:          from,
+		TotalClicks:    summary.TotalClicks,
+		UniqueVisitors: summary.UniqueVisitors,
+		ClicksByDay:    clicksByDay,
+		Referrers:      toBreakdown(summary.Referrers),
+		Countries:      toBreakdown(summary.Countries),
+		Devices:        toBreakdown(summary.Devices),
+	}, nil
 }
 
 func (c *LinkUseCase) Delete(ctx context.Context, userID uint, code string) error {

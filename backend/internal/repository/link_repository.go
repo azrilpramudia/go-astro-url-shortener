@@ -23,6 +23,10 @@ func (r *LinkRepository) FindByCode(db *gorm.DB, code string, link *entity.Link)
 	return db.Where("code = ?", code).Take(link).Error
 }
 
+func (r *LinkRepository) FindByCodeAndUser(db *gorm.DB, code string, userID uint, link *entity.Link) error {
+	return db.Where("code = ? AND user_id = ?", code, userID).Take(link).Error
+}
+
 func (r *LinkRepository) IncrementClicks(db *gorm.DB, id uint) error {
 	return db.Model(&entity.Link{}).
 		Where("id = ?", id).
