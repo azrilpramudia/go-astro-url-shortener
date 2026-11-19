@@ -4,7 +4,7 @@ import type { Link } from "../types/link";
 
 interface Props {
   links: Link[];
-  onRemove: (code: string) => void;
+  onRemove?: (code: string) => void;
 }
 
 export default function LinkList({ links, onRemove }: Props) {
@@ -74,14 +74,15 @@ export default function LinkList({ links, onRemove }: Props) {
                 >
                   {feedback === "copied" ? "Copied" : "Copy"}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => onRemove(link.code)}
-                  aria-label={`Remove ${link.code} from this browser's list`}
-                  className="inline-flex min-h-11 flex-1 items-center justify-center px-2 py-2 text-center text-sm text-slate-600 hover:text-red-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 sm:flex-none sm:px-0"
-                >
-                  Remove from this browser
-                </button>
+                {onRemove && (
+                  <button
+                    onClick={() => onRemove(link.code)}
+                    aria-label={`Hapus ${link.code}`}
+                    className="text-sm text-slate-400 hover:text-red-600"
+                  >
+                    Hapus
+                  </button>
+                )}
               </div>
               {feedback === "copied" && (
                 <p role="status" className="text-sm text-emerald-700">

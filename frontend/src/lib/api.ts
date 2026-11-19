@@ -1,5 +1,5 @@
 import { PUBLIC_API_URL } from "astro:env/client";
-import type { ApiResponse, Link } from "../types/link";
+import type { ApiResponse, Link, LinkPage, User } from "../types/link";
 
 export class ApiError extends Error {
   status: number;
@@ -15,26 +15,47 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     res = await fetch(`${PUBLIC_API_URL}${path}`, {
       ...init,
+      credentials: "include",
       headers: { "Content-Type": "application/json", ...init?.headers },
     });
   } catch {
-    throw new ApiError("Unable to connect to the server.", 0);
+    throw new ApiError("Tidak bisa terhubung ke server", 0);
   }
+
+  if (res.status === 204) return undefined as T;
 
   const body = (await res.json().catch(() => ({}))) as ApiResponse<T>;
   if (!res.ok || body.data === undefined) {
-    throw new ApiError(body.errors ?? "Something went wrong.", res.status);
+    throw new ApiError(body.errors ?? "Terjadi kesalahan", res.status);
   }
   return body.data;
 }
 
-export function createLink(url: string, expiresAt?: string) {
-  return request<Link>("/api/links", {
+export const register = (name: string, email: string, password: string) =>
+  request<User>("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ name, email, password }),
+  });
+
+export const login = (email: string, password: string) =>
+  request<User>("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+
+export const logout = () =>
+  request<void>("/api/auth/logout", { method: "POST" });
+
+export const getMe = () => request<User>("/api/auth/me");
+
+export const createLink = (url: string, expiresAt?: string) =>
+  request<Link>("/api/links", {
     method: "POST",
     body: JSON.stringify({ url, expires_at: expiresAt }),
   });
-}
 
-export function getLink(code: string) {
-  return request<Link>(`/api/links/${encodeURIComponent(code)}`);
-}
+export const listMyLinks = (page = 1, size = 50) =>
+  request<LinkPage>(`/api/me/links?page=${page}&size=${size}`);
+
+export const deleteLink = (code: string) =>
+  request<void>(`/api/links/${encodeURIComponent(code)}`, { method: "DELETE" });
