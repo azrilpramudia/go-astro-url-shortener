@@ -22,6 +22,10 @@ func NewViper() *viper.Viper {
 	v.SetDefault("COOKIE_SECURE", false)
 	v.SetDefault("RATE_LIMIT_CREATE", 20)
 	v.SetDefault("RATE_LIMIT_AUTH", 10)
+	v.SetDefault("REDIS_ADDR", "localhost:6379")
+	v.SetDefault("REDIS_DB", 0)
+	v.SetDefault("CACHE_TTL_SECONDS", 600)
+	v.SetDefault("CLICK_FLUSH_SECONDS", 15)
 
 	v.AutomaticEnv()
 

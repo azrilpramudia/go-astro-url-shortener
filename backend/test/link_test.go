@@ -1,6 +1,7 @@
 package test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -17,7 +18,8 @@ import (
 
 func clearLinks(t *testing.T) {
 	t.Helper()
-	require.NoError(t, db.Exec("TRUNCATE TABLE links RESTART IDENTITY").Error)
+	require.NoError(t, db.Exec("TRUNCATE TABLE links, users RESTART IDENTITY").Error)
+	require.NoError(t, redisClient.FlushDB(context.Background()).Err())
 }
 
 func postLink(t *testing.T, body string) *http.Response {
@@ -83,6 +85,8 @@ func TestRedirect_Success(t *testing.T) {
 	resp := getCode(t, "abc1234")
 	assert.Equal(t, http.StatusFound, resp.StatusCode)
 	assert.Equal(t, "https://go.dev", resp.Header.Get("Location"))
+
+	require.NoError(t, flusher.Flush(context.Background()))
 
 	var updated entity.Link
 	require.NoError(t, db.First(&updated, link.ID).Error)

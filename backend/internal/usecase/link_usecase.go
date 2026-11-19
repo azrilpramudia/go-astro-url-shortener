@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"go-astro-url-shortener/internal/entity"
+	"go-astro-url-shortener/internal/gateway/cache"
 	"go-astro-url-shortener/internal/model"
 	"go-astro-url-shortener/internal/model/converter"
 	"go-astro-url-shortener/internal/repository"
@@ -29,16 +30,18 @@ type LinkUseCase struct {
 	Log            *logrus.Logger
 	Validate       *validator.Validate
 	LinkRepository *repository.LinkRepository
+	Cache          *cache.LinkCache
 	BaseURL        string
 }
 
 func NewLinkUseCase(db *gorm.DB, log *logrus.Logger, validate *validator.Validate,
-	linkRepository *repository.LinkRepository, baseURL string) *LinkUseCase {
+	linkRepository *repository.LinkRepository, linkCache *cache.LinkCache, baseURL string) *LinkUseCase {
 	return &LinkUseCase{
 		DB:             db,
 		Log:            log,
 		Validate:       validate,
 		LinkRepository: linkRepository,
+		Cache:          linkCache,
 		BaseURL:        strings.TrimRight(baseURL, "/"),
 	}
 }
@@ -91,26 +94,45 @@ func (c *LinkUseCase) Create(ctx context.Context, userID *uint, request *model.C
 }
 
 func (c *LinkUseCase) Resolve(ctx context.Context, code string) (string, error) {
-	db := c.DB.WithContext(ctx)
+	notFound := fiber.NewError(fiber.StatusNotFound, "link not found")
 
-	link := new(entity.Link)
-	if err := c.LinkRepository.FindByCode(db, code, link); err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return "", fiber.NewError(fiber.StatusNotFound, "link not found")
-		}
-		c.Log.Warnf("failed to find link: %+v", err)
-		return "", fiber.ErrInternalServerError
+	if !util.IsValidCode(code) {
+		return "", notFound
 	}
 
-	if link.ExpiresAt != nil && time.Now().After(*link.ExpiresAt) {
+	entry, lookup := c.Cache.Get(ctx, code)
+	switch lookup {
+	case cache.NegativeHit:
+		return "", notFound
+	case cache.Miss:
+		link := new(entity.Link)
+		if err := c.LinkRepository.FindByCode(c.DB.WithContext(ctx), code, link); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				c.Cache.SetNotFound(ctx, code)
+				return "", notFound
+			}
+			c.Log.Warnf("failed to find link: %+v", err)
+			return "", fiber.ErrInternalServerError
+		}
+		entry = &cache.LinkEntry{ID: link.ID, URL: link.OriginalURL, ExpiresAt: link.ExpiresAt}
+		c.Cache.Set(ctx, code, entry)
+	}
+
+	if entry.ExpiresAt != nil && time.Now().After(*entry.ExpiresAt) {
 		return "", fiber.NewError(fiber.StatusGone, "link has expired")
 	}
 
-	if err := c.LinkRepository.IncrementClicks(db, link.ID); err != nil {
-		c.Log.Warnf("failed to increment clicks for %s: %+v", code, err)
-	}
+	c.countClick(ctx, entry.ID)
+	return entry.URL, nil
+}
 
-	return link.OriginalURL, nil
+func (c *LinkUseCase) countClick(ctx context.Context, linkID uint) {
+	if err := c.Cache.IncrementClicks(ctx, linkID); err == nil {
+		return
+	}
+	if err := c.LinkRepository.IncrementClicks(c.DB.WithContext(ctx), linkID); err != nil {
+		c.Log.Warnf("failed to increment clicks for link %d: %+v", linkID, err)
+	}
 }
 
 func (c *LinkUseCase) Get(ctx context.Context, code string) (*model.LinkResponse, error) {
@@ -165,5 +187,7 @@ func (c *LinkUseCase) Delete(ctx context.Context, userID uint, code string) erro
 	if affected == 0 {
 		return fiber.NewError(fiber.StatusNotFound, "link not found")
 	}
+	c.Cache.Delete(ctx, code)
+
 	return nil
 }

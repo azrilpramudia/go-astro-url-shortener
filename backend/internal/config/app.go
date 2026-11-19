@@ -6,6 +6,7 @@ import (
 	"go-astro-url-shortener/internal/delivery/http/controller"
 	"go-astro-url-shortener/internal/delivery/http/middleware"
 	"go-astro-url-shortener/internal/delivery/http/route"
+	"go-astro-url-shortener/internal/gateway/cache"
 	"go-astro-url-shortener/internal/repository"
 	"go-astro-url-shortener/internal/usecase"
 	"go-astro-url-shortener/internal/util"
@@ -14,6 +15,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"gorm.io/gorm"
@@ -25,9 +27,10 @@ type BootstrapConfig struct {
 	Log      *logrus.Logger
 	Validate *validator.Validate
 	Config   *viper.Viper
+	Redis    *redis.Client
 }
 
-func Bootstrap(cfg *BootstrapConfig) {
+func Bootstrap(cfg *BootstrapConfig) *usecase.ClickFlusher {
 	secret := cfg.Config.GetString("JWT_SECRET")
 	if len(secret) < 32 {
 		cfg.Log.Fatal("JWT_SECRET must be set and at least 32 characters long")
@@ -47,11 +50,16 @@ func Bootstrap(cfg *BootstrapConfig) {
 	linkRepository := repository.NewLinkRepository(cfg.Log)
 	userRepository := repository.NewUserRepository(cfg.Log)
 
-	// usecase
+	linkCache := cache.NewLinkCache(
+		cfg.Redis, cfg.Log,
+		time.Duration(cfg.Config.GetInt("CACHE_TTL_SECONDS"))*time.Second,
+	)
+
 	linkUseCase := usecase.NewLinkUseCase(
-		cfg.DB, cfg.Log, cfg.Validate, linkRepository,
+		cfg.DB, cfg.Log, cfg.Validate, linkRepository, linkCache,
 		cfg.Config.GetString("APP_BASE_URL"),
 	)
+
 	userUseCase := usecase.NewUserUseCase(cfg.DB, cfg.Log, cfg.Validate, userRepository, tokens)
 
 	// controller
@@ -71,4 +79,9 @@ func Bootstrap(cfg *BootstrapConfig) {
 		AuthLimit:      cfg.Config.GetInt("RATE_LIMIT_AUTH"),
 	}
 	routeConfig.Setup()
+
+	return usecase.NewClickFlusher(
+		cfg.DB, cfg.Log, linkCache, linkRepository,
+		time.Duration(cfg.Config.GetInt("CLICK_FLUSH_SECONDS"))*time.Second,
+	)
 }

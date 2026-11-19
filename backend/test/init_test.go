@@ -1,10 +1,13 @@
 package test
 
 import (
-	"go-astro-url-shortener/internal/config"
 	"strings"
 
+	"go-astro-url-shortener/internal/config"
+	"go-astro-url-shortener/internal/usecase"
+
 	"github.com/gofiber/fiber/v2"
+	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/viper"
 	"gorm.io/gorm"
@@ -13,13 +16,15 @@ import (
 var (
 	app         *fiber.App
 	db          *gorm.DB
+	redisClient *redis.Client
+	flusher     *usecase.ClickFlusher
 	viperConfig *viper.Viper
 )
 
 func init() {
 	viperConfig = config.NewViper()
 	viperConfig.Set("DB_NAME", viperConfig.GetString("DB_NAME")+"_test")
-
+	viperConfig.Set("REDIS_DB", 1)
 	if viperConfig.GetString("JWT_SECRET") == "" {
 		viperConfig.Set("JWT_SECRET", strings.Repeat("t", 48))
 	}
@@ -30,10 +35,12 @@ func init() {
 	log.SetLevel(logrus.WarnLevel)
 
 	db = config.NewDatabase(viperConfig, log)
+	redisClient = config.NewRedis(viperConfig, log)
 	app = config.NewFiber(viperConfig)
 
-	config.Bootstrap(&config.BootstrapConfig{
+	flusher = config.Bootstrap(&config.BootstrapConfig{
 		DB:       db,
+		Redis:    redisClient,
 		App:      app,
 		Log:      log,
 		Validate: config.NewValidator(),

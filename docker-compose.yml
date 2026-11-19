@@ -15,6 +15,28 @@ services:
       timeout: 3s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--maxmemory",
+        "128mb",
+        "--maxmemory-policy",
+        "volatile-lru",
+      ]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   migrate:
     image: migrate/migrate
     profiles: ["app"]
@@ -47,11 +69,18 @@ services:
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       RATE_LIMIT_CREATE: ${RATE_LIMIT_CREATE:-20}
       RATE_LIMIT_AUTH: ${RATE_LIMIT_AUTH:-10}
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_DB: ${REDIS_DB:-0}
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-600}
+      CLICK_FLUSH_SECONDS: ${CLICK_FLUSH_SECONDS:-15}
     ports:
       - "${WEB_PORT:-3000}:3000"
     depends_on:
       migrate:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   frontend:
@@ -68,3 +97,4 @@ services:
 
 volumes:
   pgdata:
+  redisdata:

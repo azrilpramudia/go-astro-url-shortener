@@ -48,3 +48,16 @@ func (r *LinkRepository) DeleteByCodeAndUser(db *gorm.DB, code string, userID ui
 	res := db.Where("code = ? AND user_id = ?", code, userID).Delete(&entity.Link{})
 	return res.RowsAffected, res.Error
 }
+
+func (r *LinkRepository) AddClicks(db *gorm.DB, batch map[uint]int64) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		for id, n := range batch {
+			if err := tx.Model(&entity.Link{}).
+				Where("id = ?", id).
+				UpdateColumn("clicks", gorm.Expr("clicks + ?", n)).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
