@@ -11,7 +11,7 @@ COMPOSE     := docker compose --env-file .env -f ../docker-compose.yml
 .PHONY: help run dev build test test-setup tidy \
 	db-up db-down \
 	migrate-create migrate-up migrate-down migrate-force \
-	app-up app-down app-ps app-logs
+	app-up app-down app-ps app-logs lint fmt
 
 help:
 	@echo "Dev:     run dev build tidy"
@@ -70,3 +70,9 @@ app-ps:
 
 app-logs:
 	$(COMPOSE) --profile app logs -f
+
+lint:
+	golangci-lint run
+
+fmt:
+	golangci-lint fmt
